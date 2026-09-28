@@ -2,11 +2,15 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 
 /// <summary>
-/// Put this on the Player. Left-click swings the pickaxe and fires a ray from the centre
-/// of the camera. If the first thing the ray hits within range is a rock (RockHealth),
-/// the rock takes damage. Works with or without a PickaxeSwing visual:
+/// Put this on the Player. Left-click swings the held mining tool and fires a ray from the
+/// centre of the camera. If the first thing the ray hits within range is a rock (RockHealth),
+/// the rock takes damage. Works with or without a swing visual:
 /// with one, the hit happens when the swing's strike lands (ImpactReached);
 /// without one, it happens immediately on click.
+///
+/// With a PlayerEquipment, the equipped tool's MiningToolController decides which swing plays,
+/// the damage per hit and the cooldown (pickaxe, hammer...). Without one, the Pickaxe Swing,
+/// Mining Cooldown and Damage Per Hit fields below are used.
 /// </summary>
 // Runs before PlayerLook, so the click that re-locks the cursor after Escape
 // is seen as "cursor unlocked" here and doesn't also count as a swing.
@@ -41,6 +45,10 @@ public class MiningController : MonoBehaviour
 
     private float nextMineTime;
     private float bufferedClickUntil = -1f;
+    private PickaxeSwing activeSwing; // the swing of the tool in hand (or Pickaxe Swing without equipment)
+
+    /// <summary>The equipped mining tool, if the held item has one.</summary>
+    private MiningToolController ActiveTool => equipment != null ? equipment.ActiveController as MiningToolController : null;
 
     /// <summary>
     /// Raised whenever a mining hit strikes a surface within range (rock or not), for effects
@@ -60,16 +68,33 @@ public class MiningController : MonoBehaviour
 
     private void OnEnable()
     {
-        if (pickaxeSwing != null) pickaxeSwing.ImpactReached += OnSwingImpact;
+        if (equipment != null) equipment.Changed += BindSwing;
+        BindSwing();
     }
 
     private void OnDisable()
     {
-        if (pickaxeSwing != null) pickaxeSwing.ImpactReached -= OnSwingImpact;
+        if (equipment != null) equipment.Changed -= BindSwing;
+        SetSwing(null);
     }
 
-    /// <summary>True if there's an active pickaxe animation that will call us back at impact.</summary>
-    private bool HasSwingVisual => pickaxeSwing != null && pickaxeSwing.isActiveAndEnabled;
+    /// <summary>Listens to the swing of whatever tool is in hand now.</summary>
+    private void BindSwing()
+    {
+        MiningToolController tool = ActiveTool;
+        SetSwing(equipment == null ? pickaxeSwing : tool != null ? tool.Swing : null);
+    }
+
+    private void SetSwing(PickaxeSwing swing)
+    {
+        if (activeSwing == swing) return;
+        if (activeSwing != null) activeSwing.ImpactReached -= OnSwingImpact;
+        activeSwing = swing;
+        if (activeSwing != null) activeSwing.ImpactReached += OnSwingImpact;
+    }
+
+    /// <summary>True if there's an active swing animation that will call us back at impact.</summary>
+    private bool HasSwingVisual => activeSwing != null && activeSwing.isActiveAndEnabled;
 
     private void Update()
     {
@@ -87,7 +112,7 @@ public class MiningController : MonoBehaviour
         if (mouse != null && mouse.leftButton.wasPressedThisFrame && Cursor.lockState == CursorLockMode.Locked)
         {
             // With a pickaxe animation, its Input Buffering setting decides how long a click may wait.
-            float buffer = HasSwingVisual ? pickaxeSwing.InputBuffering : clickBuffer;
+            float buffer = HasSwingVisual ? activeSwing.InputBuffering : clickBuffer;
             bufferedClickUntil = Time.time + Mathf.Max(buffer, 0.0001f);
         }
 
@@ -95,29 +120,31 @@ public class MiningController : MonoBehaviour
         if (Time.time < nextMineTime) return;
 
         // Don't use up the cooldown on a click that can't start a swing yet (it stays buffered).
-        if (HasSwingVisual && !pickaxeSwing.CanSwing) return;
+        if (HasSwingVisual && !activeSwing.CanSwing) return;
 
         bufferedClickUntil = -1f;
-        nextMineTime = Time.time + miningCooldown;
+        MiningToolController tool = ActiveTool;
+        nextMineTime = Time.time + (tool != null ? tool.SwingCooldown : miningCooldown);
 
         TryMine();
     }
 
     private void TryMine()
     {
-        // With a pickaxe animation, the hit waits for the strike to land (OnSwingImpact).
+        // With a swing animation, the hit waits for the strike to land (OnSwingImpact).
         // Without one, mining still works: hit immediately.
         if (HasSwingVisual)
-            pickaxeSwing.Swing();
+            activeSwing.Swing();
         else
             ApplyHit();
     }
 
-    /// <summary>Called by PickaxeSwing at the exact moment the strike lands.</summary>
+    /// <summary>Called by the tool's swing at the exact moment the strike lands.</summary>
     private void OnSwingImpact()
     {
+        PickaxeSwing swing = activeSwing;
         bool hitSomething = ApplyHit();
-        pickaxeSwing.ReportImpact(hitSomething); // recoil + camera shake if we struck a surface
+        if (swing != null) swing.ReportImpact(hitSomething); // recoil + camera shake if we struck a surface
     }
 
     /// <summary>
@@ -142,7 +169,10 @@ public class MiningController : MonoBehaviour
         }
 
         if (rock != null)
-            rock.TakeHit(damagePerHit);
+        {
+            MiningToolController tool = ActiveTool;
+            rock.TakeHit(tool != null ? tool.DamagePerHit : damagePerHit);
+        }
 
         if (hitSomething)
             SurfaceHit?.Invoke(hit, rock);

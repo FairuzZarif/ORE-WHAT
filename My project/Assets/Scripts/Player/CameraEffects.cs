@@ -98,7 +98,11 @@ public class CameraEffects : MonoBehaviour
     [SerializeField] private PlayerMovement playerMovement;
     [SerializeField] private CharacterController characterController;
     [SerializeField] private PlayerMotionState motionState;
+    [Tooltip("Used only when there's no PlayerEquipment; otherwise the held item's controller drives the swing reaction.")]
     [SerializeField] private PickaxeSwing pickaxeSwing;
+    [SerializeField] private PlayerEquipment equipment;
+
+    private HeldItemController heldItem; // the equipped item's behaviour (pickaxe, hammer...)
 
     // Neutral pose: wherever CameraRoot sits when the game starts.
     private Vector3 basePosition;
@@ -131,19 +135,32 @@ public class CameraEffects : MonoBehaviour
         if (characterController == null) characterController = GetComponentInParent<CharacterController>();
         if (motionState == null) motionState = GetComponentInParent<PlayerMotionState>();
         if (pickaxeSwing == null) pickaxeSwing = GetComponentInChildren<PickaxeSwing>();
+        if (equipment == null) equipment = GetComponentInParent<PlayerEquipment>();
         noiseSeed = Random.value * 100f;
     }
 
     private void OnEnable()
     {
-        if (pickaxeSwing != null) pickaxeSwing.HitLanded += OnPickaxeHit;
+        if (equipment != null) { equipment.Changed += BindHeldItem; BindHeldItem(); }
+        else if (pickaxeSwing != null) pickaxeSwing.HitLanded += OnPickaxeHit;
     }
 
     private void OnDisable()
     {
-        if (pickaxeSwing != null) pickaxeSwing.HitLanded -= OnPickaxeHit;
+        if (equipment != null) { equipment.Changed -= BindHeldItem; SetHeldItem(null); }
+        else if (pickaxeSwing != null) pickaxeSwing.HitLanded -= OnPickaxeHit;
         transform.localPosition = basePosition;
         transform.localRotation = baseRotation;
+    }
+
+    private void BindHeldItem() => SetHeldItem(equipment.ActiveController);
+
+    private void SetHeldItem(HeldItemController item)
+    {
+        if (heldItem == item) return;
+        if (heldItem != null) heldItem.HitLanded -= OnPickaxeHit;
+        heldItem = item;
+        if (heldItem != null) heldItem.HitLanded += OnPickaxeHit;
     }
 
     /// <summary>
@@ -297,8 +314,16 @@ public class CameraEffects : MonoBehaviour
             shakeStrength = Mathf.MoveTowards(shakeStrength, 0f, shakeDecay * dt);
         }
 
-        // Tiny reaction to the pickaxe swing (wind-up lean, strike kick, follow-through).
-        if (pickaxeSwing != null)
+        // Tiny reaction to the held tool's swing (wind-up lean, strike kick, follow-through).
+        if (equipment != null)
+        {
+            if (heldItem != null && heldItem.isActiveAndEnabled)
+            {
+                finalPos += heldItem.CameraOffset;
+                finalRot += heldItem.CameraRotation;
+            }
+        }
+        else if (pickaxeSwing != null)
         {
             finalPos += pickaxeSwing.CameraOffset;
             finalRot += pickaxeSwing.CameraRotation;

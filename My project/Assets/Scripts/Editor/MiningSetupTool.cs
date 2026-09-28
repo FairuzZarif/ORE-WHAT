@@ -70,6 +70,8 @@ public static class MiningSetupTool
 
         // Inventory, pickup (E), dropping (Q), item pushing and the item HUD.
         ItemSetupTool.AddToPlayer(player);
+        HammerSetupTool.AddHammer(player); // second mining tool: its own view + attack controller
+        HotbarSetupTool.Add(player);       // 7-slot hotbar, held-item view, item icons
 
         AssetDatabase.SaveAssets(); // persist material tweaks (metallic/smoothness)
         EditorSceneManager.MarkSceneDirty(player.scene);

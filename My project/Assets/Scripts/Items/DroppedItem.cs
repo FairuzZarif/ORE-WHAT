@@ -29,6 +29,8 @@ public class DroppedItem : MonoBehaviour
     public Rigidbody Body { get; private set; }
     /// <summary>True once a pickup has started (it's flying into the player's hands).</summary>
     public bool IsBeingPickedUp { get; private set; }
+    /// <summary>True while a player is physically carrying it (OreCarryController). It stays a normal world object.</summary>
+    public bool IsCarried { get; set; }
     /// <summary>"Copper Ore" or "Copper Ore x3".</summary>
     public string DisplayName => item == null ? name : amount > 1 ? $"{item.DisplayName} x{amount}" : item.DisplayName;
 

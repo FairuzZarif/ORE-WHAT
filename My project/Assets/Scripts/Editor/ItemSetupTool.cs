@@ -65,7 +65,7 @@ public static class ItemSetupTool
         AddToPlayer(player);
         EditorSceneManager.MarkSceneDirty(player.scene);
         EditorSceneManager.SaveScene(player.scene);
-        Debug.Log("[Ore What] Item pickup set up. Break a rock, look at the ore and press E. Q drops, 1-9 selects a slot.");
+        Debug.Log("[Ore What] Item pickup set up. E carries ore (E again releases), F stores it, E picks up tools, 1-5 equips, G throws, wheel + Q drops.");
     }
 
     /// <summary>Layers, collision rules, physics material, item assets and prefabs.</summary>
@@ -139,6 +139,13 @@ public static class ItemSetupTool
 
         if (player.GetComponent<InventoryHUD>() == null) Undo.AddComponent<InventoryHUD>(player);
 
+        // E carries ores physically (F stores them); the carry point stops at walls on these layers.
+        var carrier = player.GetComponent<OreCarryController>();
+        if (carrier == null) carrier = Undo.AddComponent<OreCarryController>(player);
+        so = new SerializedObject(carrier);
+        so.FindProperty("blockingLayers").intValue = blocking;
+        so.ApplyModifiedProperties();
+
         // Hands: start holding the pickaxe; its first-person view is the arms + pickaxe viewmodel.
         var equipment = player.GetComponent<PlayerEquipment>();
         if (equipment == null) equipment = Undo.AddComponent<PlayerEquipment>(player);
@@ -163,32 +170,64 @@ public static class ItemSetupTool
 
     /// <summary>
     /// Points PlayerEquipment's pickaxe entry at the first-person viewmodel (shown while held) and at
-    /// the held pickaxe mesh (where a throw starts). Called again after the viewmodel is rebuilt.
+    /// the held pickaxe mesh (where a throw starts), and gives the view its MiningToolController.
+    /// Called again after the viewmodel is rebuilt.
     /// </summary>
     public static void LinkPickaxeView(GameObject player)
     {
-        var equipment = player.GetComponent<PlayerEquipment>();
         var pickaxe = AssetDatabase.LoadAssetAtPath<ItemData>(PickaxeItemPath);
         Camera cam = player.GetComponentInChildren<Camera>(true);
         Transform viewModel = cam != null ? cam.transform.Find("FirstPersonViewModel") : null;
-        if (equipment == null || pickaxe == null || viewModel == null) return;
+        if (pickaxe == null || viewModel == null) return;
         PickaxeSwing swing = viewModel.GetComponentInChildren<PickaxeSwing>(true);
         Transform mesh = swing != null ? swing.transform.Find("PickaxeMesh") : null;
 
+        // Same damage and cooldown MiningController has always used, so the pickaxe mines exactly as before.
+        var mining = player.GetComponent<MiningController>();
+        int damage = 1;
+        float cooldown = 0.6f;
+        if (mining != null)
+        {
+            var mso = new SerializedObject(mining);
+            damage = mso.FindProperty("damagePerHit").intValue;
+            cooldown = mso.FindProperty("miningCooldown").floatValue;
+        }
+        EnsureMiningTool(viewModel.gameObject, swing, damage, cooldown);
+        LinkView(player, pickaxe, viewModel.gameObject, mesh);
+    }
+
+    /// <summary>Adds (or updates) the MiningToolController on a tool's view.</summary>
+    public static MiningToolController EnsureMiningTool(GameObject view, PickaxeSwing swing, int damage, float cooldown)
+    {
+        var tool = view.GetComponent<MiningToolController>();
+        if (tool == null) tool = Undo.AddComponent<MiningToolController>(view);
+        var so = new SerializedObject(tool);
+        so.FindProperty("swing").objectReferenceValue = swing;
+        so.FindProperty("damagePerHit").intValue = damage;
+        so.FindProperty("swingCooldown").floatValue = cooldown;
+        so.ApplyModifiedPropertiesWithoutUndo();
+        return tool;
+    }
+
+    /// <summary>Adds or updates PlayerEquipment's view entry for an item.</summary>
+    public static void LinkView(GameObject player, ItemData item, GameObject view, Transform throwFrom)
+    {
+        var equipment = player.GetComponent<PlayerEquipment>();
+        if (equipment == null || item == null) return;
         var so = new SerializedObject(equipment);
         SerializedProperty views = so.FindProperty("views");
         int index = -1;
         for (int i = 0; i < views.arraySize; i++)
-            if (views.GetArrayElementAtIndex(i).FindPropertyRelative("item").objectReferenceValue == pickaxe) index = i;
+            if (views.GetArrayElementAtIndex(i).FindPropertyRelative("item").objectReferenceValue == item) index = i;
         if (index < 0)
         {
             index = views.arraySize;
             views.InsertArrayElementAtIndex(index);
         }
         SerializedProperty entry = views.GetArrayElementAtIndex(index);
-        entry.FindPropertyRelative("item").objectReferenceValue = pickaxe;
-        entry.FindPropertyRelative("view").objectReferenceValue = viewModel.gameObject;
-        entry.FindPropertyRelative("throwFrom").objectReferenceValue = mesh;
+        entry.FindPropertyRelative("item").objectReferenceValue = item;
+        entry.FindPropertyRelative("view").objectReferenceValue = view;
+        entry.FindPropertyRelative("throwFrom").objectReferenceValue = throwFrom;
         so.ApplyModifiedProperties();
     }
 
@@ -345,7 +384,7 @@ public static class ItemSetupTool
     }
 
     /// <summary>A little bounce, decent grip: items hop once or twice, tumble, then settle.</summary>
-    private static PhysicsMaterial GetOrCreatePhysicsMaterial()
+    internal static PhysicsMaterial GetOrCreatePhysicsMaterial()
     {
         var pm = AssetDatabase.LoadAssetAtPath<PhysicsMaterial>(PhysicsMaterialPath);
         if (pm != null) return pm;
@@ -383,7 +422,7 @@ public static class ItemSetupTool
         return -1;
     }
 
-    private static void EnsureFolder(string parent, string name)
+    internal static void EnsureFolder(string parent, string name)
     {
         if (!AssetDatabase.IsValidFolder($"{parent}/{name}"))
             AssetDatabase.CreateFolder(parent, name);

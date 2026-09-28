@@ -17,8 +17,9 @@ MonoBehaviour:
   itemId: crystal
   displayName: Crystal
   description: 
-  icon: {fileID: 0}
+  icon: {fileID: 21300000, guid: 3caa7b02c32260e4680d5cfce94fb343, type: 3}
   worldPrefab: {fileID: 8348371269140631366, guid: 7c94844c6a6cccf44900a92d49cc59e6, type: 3}
+  heldModel: {fileID: 0}
   value: 75
   stackable: 1
   maxStackSize: 50

@@ -17,8 +17,9 @@ MonoBehaviour:
   itemId: ore_gold
   displayName: Gold Ore
   description: 
-  icon: {fileID: 0}
+  icon: {fileID: 21300000, guid: 69f4c853ee6b6de4b836c87288fc683c, type: 3}
   worldPrefab: {fileID: 3744913537392878969, guid: 449cb2ac4f36b864bbf99e8034542ccd, type: 3}
+  heldModel: {fileID: 0}
   value: 50
   stackable: 1
   maxStackSize: 50

@@ -47,6 +47,7 @@ public class PlayerItemPusher : MonoBehaviour
         {
             Rigidbody body = hits[i].attachedRigidbody;
             if (body == null || body.isKinematic || AlreadyPushed(body, i)) continue;
+            if (body.TryGetComponent(out DroppedItem dropped) && dropped.IsCarried) continue; // the one in your hands
 
             // Mostly along the player's movement, partly away from the player's centre.
             Vector3 away = body.position - center;

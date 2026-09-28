@@ -3,9 +3,16 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 
 /// <summary>
-/// Look at an item and press the pickup key (E) to put it in the inventory.
-/// Put it on the Player. Each frame it casts one thin ray from the centre of the camera
-/// (no scanning of the scene), so walls and rocks block items behind them.
+/// Everything you do to an item by looking at it. Put it on the Player. Each frame it casts one
+/// thin ray from the centre of the camera (no scanning of the scene), so walls and rocks block
+/// items behind them; an item you're carrying is looked through.
+///
+///   E  on an ore/resource   carry it physically (OreCarryController); it stays in the world
+///   E  while carrying       release it
+///   E  on a tool/weapon     put it in the inventory (and equip it if your hands are empty)
+///   F  on any item          store it in the inventory (stacks; stays in the world if it won't fit)
+///   F  while carrying       store the carried item
+///
 /// The prompt text is exposed for any UI to show (InventoryHUD draws it for now).
 /// </summary>
 public class ItemPickupInteractor : MonoBehaviour
@@ -13,8 +20,10 @@ public class ItemPickupInteractor : MonoBehaviour
     [Header("References (auto-found if empty)")]
     [SerializeField] private Camera playerCamera;
     [SerializeField] private PlayerInventory inventory;
-    [Tooltip("Optional. Tools and weapons go into the hands through this instead of the inventory.")]
+    [Tooltip("Optional. If the hands are empty, a picked-up tool/weapon is equipped through this.")]
     [SerializeField] private PlayerEquipment equipment;
+    [Tooltip("Optional. Lets E physically carry ores instead of storing them.")]
+    [SerializeField] private OreCarryController carrier;
 
     [Header("Detection")]
     [Tooltip("How far away (metres, from the eyes) an item can be picked up.")]
@@ -27,7 +36,12 @@ public class ItemPickupInteractor : MonoBehaviour
     [SerializeField] private LayerMask blockingLayers = 1; // Default
 
     [Header("Input")]
+    [Tooltip("Carry key: carries ores, picks up tools/weapons.")]
     [SerializeField] private Key pickupKey = Key.E;
+    [Tooltip("Lets go of the carried item. Can be the same key as the carry key (press E again).")]
+    [SerializeField] private Key releaseKey = Key.E;
+    [Tooltip("Stores the item you look at (or carry) in the inventory.")]
+    [SerializeField] private Key storeKey = Key.F;
 
     [Header("Feedback")]
     [Tooltip("How long the item takes to fly into the hands when picked up (0 = vanish instantly).")]
@@ -40,14 +54,23 @@ public class ItemPickupInteractor : MonoBehaviour
 
     /// <summary>The item being looked at (in range and not blocked), or null.</summary>
     public DroppedItem Target { get; private set; }
-    /// <summary>"[E] Pick up Copper Ore", or null when not looking at an item.</summary>
+    /// <summary>
+    /// What the keys would do right now, one action per line ("[E] Carry Copper Ore\n[F] Store Copper Ore"),
+    /// or null when there's nothing to do.
+    /// </summary>
     public string PromptText
     {
         get
         {
+            if (carrier != null && carrier.IsCarrying)
+            {
+                string held = $"Carrying: {carrier.LastCarried.DisplayName}\n[{releaseKey}] Release   [{storeKey}] Store";
+                return Target != null && Target.Item.Carryable && carrier.CanCarryMore
+                    ? $"[{pickupKey}] Carry {Target.DisplayName}\n{held}" : held;
+            }
             if (Target == null) return null;
-            if (IsHoldable(Target) && equipment.Equipped != null)
-                return $"[{pickupKey}] Swap {equipment.Equipped.DisplayName} for {Target.DisplayName}";
+            if (carrier != null && Target.Item.Carryable)
+                return $"[{pickupKey}] Carry {Target.DisplayName}\n[{storeKey}] Store {Target.DisplayName}";
             return $"[{pickupKey}] Pick up {Target.DisplayName}";
         }
     }
@@ -66,6 +89,8 @@ public class ItemPickupInteractor : MonoBehaviour
         if (playerCamera == null) playerCamera = GetComponentInChildren<Camera>();
         if (inventory == null) inventory = GetComponent<PlayerInventory>();
         if (equipment == null) equipment = GetComponent<PlayerEquipment>();
+        if (carrier == null) carrier = GetComponent<OreCarryController>();
+        if (carrier != null) carrier.DroppedBySnag += item => ShowMessage($"Dropped {item.DisplayName}");
         if (pickupLayer.value == 0 && ItemDrops.Layer >= 0) pickupLayer = 1 << ItemDrops.Layer;
 
         audioSource = gameObject.AddComponent<AudioSource>();
@@ -86,64 +111,99 @@ public class ItemPickupInteractor : MonoBehaviour
         Target = FindTarget();
 
         Keyboard keyboard = Keyboard.current;
-        if (Target != null && keyboard != null && keyboard[pickupKey].wasPressedThisFrame)
-            TryPickup(Target);
+        if (keyboard == null) return;
+        if (keyboard[storeKey].wasPressedThisFrame)
+        {
+            // Store what you're carrying first, otherwise what you're looking at.
+            if (carrier != null && carrier.IsCarrying) TryPickup(carrier.LastCarried);
+            else if (Target != null) TryPickup(Target);
+        }
+        else if (keyboard[pickupKey].wasPressedThisFrame || keyboard[releaseKey].wasPressedThisFrame)
+            HandleCarryKeys(keyboard[pickupKey].wasPressedThisFrame, keyboard[releaseKey].wasPressedThisFrame);
     }
+
+    /// <summary>E: carry an ore (if there's room), otherwise let go of the carried one; tools go to the inventory.</summary>
+    private void HandleCarryKeys(bool carryPressed, bool releasePressed)
+    {
+        if (carrier == null) // no carrying on this player: E stores everything, as before
+        {
+            if (carryPressed && Target != null) TryPickup(Target);
+            return;
+        }
+        bool lookingAtOre = Target != null && Target.Item.Carryable;
+
+        if (carryPressed && lookingAtOre && carrier.CanCarryMore)
+        {
+            if (carrier.TryCarry(Target)) { PlaySound(Target.Item); Target = null; }
+            else ShowMessage(carrier.CannotCarryReason(Target));
+            return;
+        }
+        if (releasePressed && carrier.IsCarrying) { carrier.ReleaseLast(); return; }
+        if (carryPressed && Target != null && !Target.Item.Carryable) { TryPickup(Target); return; }
+        if (carryPressed && lookingAtOre) ShowMessage(carrier.CannotCarryReason(Target)); // e.g. "Hands full"
+    }
+
+    private readonly RaycastHit[] lookHits = new RaycastHit[16];
 
     private DroppedItem FindTarget()
     {
         Ray ray = playerCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
         int mask = pickupLayer | blockingLayers;
-        bool hit = aimRadius > 0f
-            ? Physics.SphereCast(ray, aimRadius, out RaycastHit info, pickupRange, mask, QueryTriggerInteraction.Ignore)
-            : Physics.Raycast(ray, out info, pickupRange, mask, QueryTriggerInteraction.Ignore);
-        if (!hit) return null;
+        int count = aimRadius > 0f
+            ? Physics.SphereCastNonAlloc(ray, aimRadius, lookHits, pickupRange, mask, QueryTriggerInteraction.Ignore)
+            : Physics.RaycastNonAlloc(ray, lookHits, pickupRange, mask, QueryTriggerInteraction.Ignore);
 
         // Only the first thing hit counts, so a wall or rock in front hides the item.
-        DroppedItem item = info.collider.GetComponentInParent<DroppedItem>();
-        return item != null && item.Item != null && !item.IsBeingPickedUp ? item : null;
+        // A carried item is looked through (it floats right in front of you).
+        DroppedItem nearest = null;
+        float nearestDistance = float.MaxValue;
+        for (int i = 0; i < count; i++)
+        {
+            DroppedItem item = lookHits[i].collider.GetComponentInParent<DroppedItem>();
+            if (item != null && item.IsCarried) continue;
+            if (lookHits[i].distance >= nearestDistance) continue;
+            nearestDistance = lookHits[i].distance;
+            nearest = item; // null = a wall/rock is closest
+        }
+        return nearest != null && nearest.Item != null && !nearest.IsBeingPickedUp ? nearest : null;
     }
 
-    /// <summary>Puts as much of the item into the inventory as fits. Returns true if anything was picked up.</summary>
+    /// <summary>
+    /// Puts as much of the item into the inventory as fits (all item types, one inventory).
+    /// An equippable item is also equipped, but only if the hands were empty: picking up never
+    /// replaces what's held. Returns true if anything was picked up.
+    /// </summary>
     public bool TryPickup(DroppedItem item)
     {
         if (item == null || item.IsBeingPickedUp || item.Item == null) return false;
+        ItemData data = item.Item;
 
-        // Tools and weapons go straight into the hands (swapping out whatever is held).
-        if (IsHoldable(item))
-        {
-            equipment.PickUp(item.Item);
-            item.Collect(playerCamera.transform, collectDuration);
-            Target = null;
-            PlaySound(item.Item);
-            PickedUp?.Invoke(item.Item, 1);
-            return true;
-        }
-
-        int added = inventory.AddItem(item.Item, item.Amount);
+        int added = inventory.AddItem(data, item.Amount, out int slot);
         if (added <= 0)
         {
-            ShowMessage("Inventory Full"); // the item stays in the world
+            ShowMessage("Inventory Full"); // the item stays in the world (and in your hands if carried)
             return false;
         }
 
         if (added < item.Amount)
         {
-            item.SetAmount(item.Amount - added); // the rest stays in the world
+            item.SetAmount(item.Amount - added); // the rest stays in the world (still carried if it was)
             ShowMessage("Inventory Full");
         }
         else
         {
+            if (carrier != null && item.IsCarried) carrier.Forget(item); // only once it's safely in the inventory
             item.Collect(playerCamera.transform, collectDuration);
             Target = null;
         }
 
-        PlaySound(item.Item);
-        PickedUp?.Invoke(item.Item, added);
+        if (equipment != null && data.Equippable && equipment.Equipped == null && slot >= 0)
+            equipment.EquipSlot(slot);
+
+        PlaySound(data);
+        PickedUp?.Invoke(data, added);
         return true;
     }
-
-    private bool IsHoldable(DroppedItem item) => equipment != null && item.Item != null && item.Item.IsHoldable;
 
     private void PlaySound(ItemData item)
     {

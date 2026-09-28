@@ -4,9 +4,9 @@ using UnityEngine.InputSystem;
 /// <summary>
 /// Drops items from the inventory as physical objects, tossed gently in front of the player.
 /// Put it on the Player.
-///   1-9     select an inventory slot
-///   Q       drop one item from the selected slot
-///   Ctrl+Q  drop the whole stack (as one object, e.g. "Copper Ore x5")
+///   Q            drop one item from the selected hotbar slot (1-7 / mouse wheel, on PlayerEquipment)
+///   Ctrl+Q       drop the whole stack (as one object, e.g. "Copper Ore x5")
+/// (G, on PlayerEquipment, throws the item in the hands instead.)
 /// Other scripts (a future inventory screen) can call <see cref="Drop"/> directly.
 /// </summary>
 public class ItemDropper : MonoBehaviour
@@ -15,11 +15,10 @@ public class ItemDropper : MonoBehaviour
     [SerializeField] private Camera playerCamera;
     [SerializeField] private PlayerInventory inventory;
     [SerializeField] private CharacterController controller;
+    [SerializeField] private PlayerEquipment equipment;
 
     [Header("Input")]
     [SerializeField] private Key dropKey = Key.Q;
-    [Tooltip("Number keys 1-9 choose the slot to drop from.")]
-    [SerializeField] private bool numberKeysSelectSlot = true;
 
     [Header("Drop")]
     [Tooltip("How far in front of the eyes the item appears (metres).")]
@@ -42,6 +41,7 @@ public class ItemDropper : MonoBehaviour
         if (playerCamera == null) playerCamera = GetComponentInChildren<Camera>();
         if (inventory == null) inventory = GetComponent<PlayerInventory>();
         if (controller == null) controller = GetComponent<CharacterController>();
+        if (equipment == null) equipment = GetComponent<PlayerEquipment>();
     }
 
     private void Update()
@@ -49,12 +49,10 @@ public class ItemDropper : MonoBehaviour
         Keyboard keyboard = Keyboard.current;
         if (keyboard == null || inventory == null || Cursor.lockState != CursorLockMode.Locked) return;
 
-        if (numberKeysSelectSlot)
-            for (int i = 0; i < Mathf.Min(9, inventory.SlotCount); i++)
-                if (keyboard[Key.Digit1 + i].wasPressedThisFrame)
-                    inventory.SelectSlot(i);
-
-        if (keyboard[dropKey].wasPressedThisFrame)
+        // Not mid-swing (same rule as G), and not while the hands are carrying a world ore
+        // (then E releases / G throws that ore instead).
+        bool blocked = equipment != null && (equipment.IsCarrying || (equipment.ActiveController != null && equipment.ActiveController.IsBusy));
+        if (keyboard[dropKey].wasPressedThisFrame && !blocked)
         {
             bool wholeStack = keyboard.ctrlKey.isPressed;
             InventorySlot slot = inventory.Slots[inventory.SelectedSlot];

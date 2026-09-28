@@ -3,21 +3,27 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 
 /// <summary>
-/// What the player holds in their hands: one tool or weapon (the pickaxe, later swords,
-/// drills...). Put it on the Player.
+/// What's in the player's hands. Put it on the Player, next to PlayerInventory.
 ///
-///   G   throw the held item: it leaves the hands where it is on screen and tumbles
-///       away as a physical DroppedItem.
-///   E   (ItemPickupInteractor) on a tool/weapon: it goes straight into the hands. If the
-///       hands are full, the held one is dropped at your feet (a swap).
+/// The inventory's SELECTED SLOT (PlayerInventory.SelectedSlot) is the one source of truth: this
+/// component holds no item of its own, it only shows whatever that slot holds.
 ///
-/// Each holdable item can have a "view": the first-person object shown while it's held
-/// (for the pickaxe that's FirstPersonViewModel: the arms + pickaxe). Holding nothing
-/// hides every view. MiningController only mines while the held item Can Mine.
+///   1-7 (one per slot)  select that hotbar slot (an empty slot = empty hands)
+///   Mouse wheel         cycle through the occupied slots
+///   G                   throw what's in the hands: the selected item (one of a stack), or the
+///                       ore you're carrying. It leaves the hands where it is on screen.
+///
+/// Which first-person view is shown:
+///   - a tool/weapon with an entry in Views (pickaxe, hammer): its own view (arms + tool + controller)
+///   - any other item (ores...): the shared HeldResourceView, holding a visual-only copy of it
+///   - while carrying a world ore (OreCarryController): the HeldResourceView around the real ore;
+///     the selected slot is untouched and comes back when the ore is released or stored
+/// Only one view is ever active. Item-specific behaviour (the pickaxe swing, a future sword/gun)
+/// lives on that view (HeldItemController), not here. Mining needs the held item to Can Mine.
 /// </summary>
 public class PlayerEquipment : MonoBehaviour
 {
-    /// <summary>Links a holdable item to what's shown in first person while holding it.</summary>
+    /// <summary>Links a tool/weapon to what's shown in first person while holding it.</summary>
     [Serializable]
     public class HeldView
     {
@@ -29,12 +35,18 @@ public class PlayerEquipment : MonoBehaviour
         public Transform throwFrom;
     }
 
-    [Header("Held item")]
-    [Tooltip("What the player starts the game holding (can be empty).")]
-    [SerializeField] private ItemData startingItem;
-    [SerializeField] private HeldView[] views = new HeldView[0];
-    [Tooltip("Auto-found if empty.")]
+    [Header("References (auto-found if empty)")]
+    [SerializeField] private PlayerInventory inventory;
     [SerializeField] private Camera playerCamera;
+    [SerializeField] private OreCarryController carrier;
+
+    [Header("Held item")]
+    [Tooltip("Put into the inventory and selected when the game starts (can be empty).")]
+    [SerializeField] private ItemData startingItem;
+    [Tooltip("Tools/weapons with their own first-person view.")]
+    [SerializeField] private HeldView[] views = new HeldView[0];
+    [Tooltip("Shared view for every other item (ores...) and for carried world ores.")]
+    [SerializeField] private HeldResourceView itemView;
 
     [Header("Throw")]
     [SerializeField] private Key throwKey = Key.G;
@@ -50,75 +62,156 @@ public class PlayerEquipment : MonoBehaviour
     [Tooltip("Layers a thrown item must not spawn inside (walls, rocks).")]
     [SerializeField] private LayerMask blockingLayers = 1; // Default
 
-    [Header("Swap")]
-    [Tooltip("When picking up a tool with full hands, how hard the old one is dropped (m/s).")]
-    [SerializeField, Min(0f)] private float swapDropForce = 1.5f;
-
-    /// <summary>The item in the hands, or null.</summary>
-    public ItemData Equipped { get; private set; }
-    /// <summary>True while holding something that can mine.</summary>
-    public bool CanMine => Equipped != null && Equipped.CanMine;
-    /// <summary>Raised when the held item changes.</summary>
+    /// <summary>The selected slot if it holds an item, else -1.</summary>
+    public int EquippedSlotIndex
+    {
+        get
+        {
+            if (inventory == null || inventory.SlotCount == 0) return -1;
+            int i = inventory.SelectedSlot;
+            return inventory.Slots[i].IsEmpty ? -1 : i;
+        }
+    }
+    /// <summary>The selected inventory item (any kind: tool, ore...), or null for empty hands.</summary>
+    public ItemData Equipped => EquippedSlotIndex >= 0 ? inventory.Slots[EquippedSlotIndex].item : null;
+    /// <summary>True while a world ore is being carried (the hands hold it instead of the selected item).</summary>
+    public bool IsCarrying => carrier != null && carrier.IsCarrying;
+    /// <summary>True while holding something that can mine (not while carrying an ore).</summary>
+    public bool CanMine => !IsCarrying && Equipped != null && Equipped.CanMine;
+    /// <summary>The shown view's behaviour, e.g. a MiningToolController. Null for held ores and empty hands.</summary>
+    public HeldItemController ActiveController { get; private set; }
+    /// <summary>"Holding: Pickaxe   [G] Throw", "Carrying: Copper Ore", "Hands empty"...</summary>
+    public string StatusText
+    {
+        get
+        {
+            if (IsCarrying) return $"Carrying: {carrier.LastCarried.DisplayName}";
+            ItemData item = Equipped;
+            if (item == null) return "Hands empty";
+            int amount = inventory.Slots[EquippedSlotIndex].amount;
+            return amount > 1 ? $"Holding: {item.DisplayName} x{amount}   [{throwKey}] Throw one" : $"Holding: {item.DisplayName}   [{throwKey}] Throw";
+        }
+    }
+    /// <summary>Raised when what's shown in the hands changes.</summary>
     public event Action Changed;
 
     private CharacterController controller;
+    private GameObject shownView;
+    private ItemData shownItem;
+    private bool shownCarrying, shownOnce;
 
     private void Awake()
     {
+        if (inventory == null) inventory = GetComponent<PlayerInventory>();
         if (playerCamera == null) playerCamera = GetComponentInChildren<Camera>(true);
+        if (carrier == null) carrier = GetComponent<OreCarryController>();
         controller = GetComponent<CharacterController>();
-        Equip(startingItem);
+
+        if (startingItem != null && inventory != null && inventory.AddItem(startingItem, 1, out int slot) > 0)
+            inventory.SelectSlot(slot);
+        Refresh();
+    }
+
+    private void OnEnable()
+    {
+        if (inventory != null) inventory.Changed += Refresh;
+        if (carrier != null) carrier.CarryChanged += Refresh;
+    }
+
+    private void OnDisable()
+    {
+        if (inventory != null) inventory.Changed -= Refresh;
+        if (carrier != null) carrier.CarryChanged -= Refresh;
     }
 
     private void Update()
     {
         Keyboard keyboard = Keyboard.current;
-        if (keyboard == null || Cursor.lockState != CursorLockMode.Locked) return;
-        if (Equipped != null && keyboard[throwKey].wasPressedThisFrame && !MidStrike())
-            Throw();
+        if (keyboard == null || inventory == null || Cursor.lockState != CursorLockMode.Locked) return;
+
+        for (int i = 0; i < Mathf.Min(9, inventory.SlotCount); i++)
+            if (keyboard[Key.Digit1 + i].wasPressedThisFrame && !MidStrike())
+                inventory.SelectSlot(i);
+
+        Mouse mouse = Mouse.current;
+        float scroll = mouse != null ? mouse.scroll.ReadValue().y : 0f;
+        if (Mathf.Abs(scroll) > 0.01f && !MidStrike()) SelectNextOccupied(scroll > 0f ? -1 : 1);
+
+        if (keyboard[throwKey].wasPressedThisFrame)
+        {
+            if (IsCarrying) ThrowCarried();
+            else if (Equipped != null && !MidStrike()) Throw();
+        }
     }
 
-    /// <summary>Puts an item in the hands (or empties them with null) and shows its view.</summary>
-    public void Equip(ItemData item)
+    /// <summary>Selects an inventory slot (kept for callers from before the hotbar; same as PlayerInventory.SelectSlot).</summary>
+    public void EquipSlot(int slotIndex) => inventory.SelectSlot(slotIndex);
+
+    private void SelectNextOccupied(int step)
     {
-        Equipped = item;
+        int n = inventory.SlotCount;
+        for (int k = 1; k <= n; k++)
+        {
+            int i = ((inventory.SelectedSlot + step * k) % n + n) % n;
+            if (!inventory.Slots[i].IsEmpty) { inventory.SelectSlot(i); return; }
+        }
+    }
+
+    /// <summary>Shows the right first-person view for the selected slot / carried ore. Only switches when that changes.</summary>
+    private void Refresh()
+    {
+        bool carrying = IsCarrying;
+        ItemData item = carrying ? null : Equipped;
+        HeldView toolView = Find(item);
+        GameObject view = carrying ? ItemViewObject
+                        : toolView != null && toolView.view != null ? toolView.view
+                        : item != null ? ItemViewObject : null;
+
+        if (shownOnce && view == shownView && item == shownItem && carrying == shownCarrying)
+        {
+            if (carrying && itemView != null) itemView.ShowCarried(carrier.LastCarried); // e.g. a second ore picked up
+            return;
+        }
+
+        // Exactly one view active (the target stays active if it already was, so a tool's swing isn't reset).
         foreach (HeldView v in views)
-            if (v.view != null) v.view.SetActive(false);
-        HeldView current = Find(item);
-        if (current != null && current.view != null) current.view.SetActive(true);
+            if (v.view != null && v.view != view) v.view.SetActive(false);
+        if (ItemViewObject != null && ItemViewObject != view) ItemViewObject.SetActive(false);
+        if (view != null) view.SetActive(true);
+
+        if (view != null && view == ItemViewObject)
+        {
+            if (carrying) itemView.ShowCarried(carrier.LastCarried);
+            else itemView.ShowItem(item);
+        }
+
+        ActiveController = view != null ? view.GetComponentInChildren<HeldItemController>(true) : null;
+        shownView = view; shownItem = item; shownCarrying = carrying; shownOnce = true;
         Changed?.Invoke();
     }
 
+    private GameObject ItemViewObject => itemView != null ? itemView.gameObject : null;
+
     /// <summary>
-    /// Called by ItemPickupInteractor when picking up a tool or weapon from the world.
-    /// A held item is swapped out and dropped at the player's feet.
+    /// Throws the selected item into the world: removes ONE from its slot (the rest of a stack stays
+    /// selected) and spawns it as a tumbling physics object. Returns the new world object.
     /// </summary>
-    public void PickUp(ItemData item)
-    {
-        if (item == null) return;
-        if (Equipped != null) Release(swapDropForce, 0.5f, 0f, fromHands: false);
-        Equip(item);
-    }
-
-    /// <summary>Throws the held item into the world. Returns the new world object.</summary>
-    public DroppedItem Throw() => Release(throwForce, throwUpward, throwSpin, fromHands: true);
-
-    private DroppedItem Release(float forward, float upward, float spin, bool fromHands)
+    public DroppedItem Throw()
     {
         ItemData item = Equipped;
         if (item == null || playerCamera == null) return null;
         Transform eye = playerCamera.transform;
-        HeldView held = Find(item);
 
         // Start where the item is on screen (seamless), or just in front of the camera.
         Vector3 position = eye.position + eye.forward * 0.6f - eye.up * 0.25f + eye.right * 0.15f;
         Quaternion rotation = eye.rotation;
-        if (fromHands && held != null && held.throwFrom != null && held.throwFrom.gameObject.activeInHierarchy)
+        HeldView held = Find(item);
+        Transform from = held != null ? held.throwFrom : itemView != null ? itemView.CurrentModel : null;
+        if (from != null && from.gameObject.activeInHierarchy)
         {
-            position = held.throwFrom.position;
-            rotation = held.throwFrom.rotation;
+            position = from.position;
+            rotation = from.rotation;
         }
-        if (!fromHands) position = eye.position + eye.forward * 0.5f - eye.up * 0.6f;
 
         // Never inside a wall: stop short of anything between the eyes and the spawn point.
         Vector3 toSpawn = position - eye.position;
@@ -126,23 +219,26 @@ public class PlayerEquipment : MonoBehaviour
                                blockingLayers, QueryTriggerInteraction.Ignore))
             position = eye.position + toSpawn.normalized * Mathf.Max(0f, hit.distance - 0.05f);
 
-        Vector3 velocity = eye.forward * forward + Vector3.up * upward;
-        if (inheritPlayerVelocity && controller != null) velocity += controller.velocity;
-        // Spin around the camera's right axis = end over end, head first.
-        Vector3 angular = eye.right * spin + UnityEngine.Random.insideUnitSphere * randomTorque;
-
-        Equip(null);
-        return ItemDrops.Spawn(item, 1, position, rotation, velocity, angular);
+        inventory.RemoveFromSlot(EquippedSlotIndex, 1); // the view updates itself (empty slot = empty hands)
+        return ItemDrops.Spawn(item, 1, position, rotation, ThrowVelocity(), ThrowSpin());
     }
 
-    /// <summary>Don't throw away a tool in the middle of its strike (before the hit lands).</summary>
-    private bool MidStrike()
+    /// <summary>Throws the carried world ore with the same throw as an inventory item.</summary>
+    public DroppedItem ThrowCarried() => carrier != null ? carrier.ThrowLast(ThrowVelocity(), ThrowSpin()) : null;
+
+    private Vector3 ThrowVelocity()
     {
-        HeldView held = Find(Equipped);
-        if (held == null || held.view == null) return false;
-        PickaxeSwing swing = held.view.GetComponentInChildren<PickaxeSwing>();
-        return swing != null && swing.IsSwinging && !swing.CanSwing;
+        Transform eye = playerCamera.transform;
+        Vector3 velocity = eye.forward * throwForce + Vector3.up * throwUpward;
+        if (inheritPlayerVelocity && controller != null) velocity += controller.velocity;
+        return velocity;
     }
+
+    // Spin around the camera's right axis = end over end, head first.
+    private Vector3 ThrowSpin() => playerCamera.transform.right * throwSpin + UnityEngine.Random.insideUnitSphere * randomTorque;
+
+    /// <summary>Don't throw away or switch a tool in the middle of its strike (before the hit lands).</summary>
+    private bool MidStrike() => ActiveController != null && ActiveController.IsBusy;
 
     private HeldView Find(ItemData item)
     {

@@ -8,7 +8,7 @@ using UnityEngine;
 [CreateAssetMenu(menuName = "Ore What/Item Data", fileName = "NewItem", order = 0)]
 public class ItemData : ScriptableObject
 {
-    /// <summary>What kind of item this is. Tools and weapons are held in the hands (PlayerEquipment), not in the inventory.</summary>
+    /// <summary>What kind of item this is. The category decides <see cref="Equippable"/>.</summary>
     public enum ItemCategory { Resource, Tool, Weapon, Equipment, Consumable, Artifact }
 
     [Header("Category")]
@@ -29,6 +29,9 @@ public class ItemData : ScriptableObject
     [Tooltip("What the item looks like lying in the world. Needs a Rigidbody, colliders and a DroppedItem " +
              "(the item setup tool builds these). If empty, a plain cube is used.")]
     [SerializeField] private GameObject worldPrefab;
+    [Tooltip("Optional. Model shown in the first-person hands when this item is selected and has no tool view of its own " +
+             "(ores etc.). Empty = the World Prefab's look is used (its physics parts are stripped).")]
+    [SerializeField] private GameObject heldModel;
 
     [Header("Economy & stacking")]
     [Tooltip("Worth of ONE item, in $.")]
@@ -43,14 +46,22 @@ public class ItemData : ScriptableObject
     [SerializeField] private AudioClip pickupSound;
 
     public ItemCategory Category => category;
-    /// <summary>Tools and weapons go into the hands instead of the inventory.</summary>
-    public bool IsHoldable => category == ItemCategory.Tool || category == ItemCategory.Weapon;
+    /// <summary>
+    /// Everything lives in the inventory (PlayerInventory). Equippable items (Tools and
+    /// Weapons) can additionally be made the one item held in the hands (PlayerEquipment);
+    /// Resources and the rest stay inventory-only.
+    /// </summary>
+    public bool Equippable => category == ItemCategory.Tool || category == ItemCategory.Weapon;
+    /// <summary>Can be physically carried around as a world object (E) instead of being stored (F). Everything that isn't equippable.</summary>
+    public bool Carryable => !Equippable;
     public bool CanMine => canMine;
     public string ItemId => itemId;
     public string DisplayName => displayName;
     public string Description => description;
     public Sprite Icon => icon;
     public GameObject WorldPrefab => worldPrefab;
+    /// <summary>What the hands hold when this item is selected (HeldModel, or the World Prefab's look).</summary>
+    public GameObject HeldModel => heldModel != null ? heldModel : worldPrefab;
     public int Value => value;
     public bool Stackable => stackable;
     /// <summary>How many fit in one inventory slot.</summary>

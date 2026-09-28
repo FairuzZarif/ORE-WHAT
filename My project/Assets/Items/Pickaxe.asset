@@ -17,8 +17,9 @@ MonoBehaviour:
   itemId: tool_pickaxe
   displayName: Pickaxe
   description: 
-  icon: {fileID: 0}
+  icon: {fileID: 21300000, guid: f10327cfcae11bf459797669d0cb072d, type: 3}
   worldPrefab: {fileID: 5665626561311924485, guid: 9c32a66b335d0844fb29f3ad39fe6b3d, type: 3}
+  heldModel: {fileID: 0}
   value: 100
   stackable: 0
   maxStackSize: 1

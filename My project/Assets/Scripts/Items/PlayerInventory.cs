@@ -12,14 +12,18 @@ public class InventorySlot
 }
 
 /// <summary>
-/// The player's inventory: a fixed number of slots. Stackable items fill existing stacks
-/// first (Copper Ore x4 + 1 = Copper Ore x5), then empty slots, up to each item's Max Stack.
-/// Put it on the Player. Pickup, dropping and the HUD all use this component.
+/// The single inventory: every item the player carries, resources and equippable tools/weapons
+/// alike (PlayerEquipment just points at one slot in here; it holds nothing of its own).
+/// A fixed number of slots. Stackable items fill existing stacks first (Copper Ore x4 + 1 =
+/// Copper Ore x5), then empty slots, up to each item's Max Stack. Non-stackable items (most
+/// tools/weapons) always take a fresh slot, so two pickaxes sit in two separate slots.
+/// Put it on the Player. Pickup, dropping, equipping and the HUD all use this component.
 /// </summary>
+[DefaultExecutionOrder(-5)] // other Items scripts read this in their own Awake; slots must exist first
 public class PlayerInventory : MonoBehaviour
 {
     [Tooltip("How many slots the player has.")]
-    [SerializeField, Min(1)] private int slotCount = 8;
+    [SerializeField, Min(1)] private int slotCount = 7;
     [Tooltip("Current contents (visible for debugging; you can also pre-fill it here).")]
     [SerializeField] private List<InventorySlot> slots = new List<InventorySlot>();
 
@@ -28,7 +32,7 @@ public class PlayerInventory : MonoBehaviour
 
     public IReadOnlyList<InventorySlot> Slots => slots;
     public int SlotCount => slots.Count;
-    /// <summary>The slot the drop key acts on.</summary>
+    /// <summary>The selected hotbar slot: what the hands hold (PlayerEquipment) and what Q/G act on. The one source of truth.</summary>
     public int SelectedSlot { get; private set; }
 
     /// <summary>Total $ value of everything carried.</summary>
@@ -50,6 +54,7 @@ public class PlayerInventory : MonoBehaviour
     {
         while (slots.Count < slotCount) slots.Add(new InventorySlot());
         if (slots.Count > slotCount) slots.RemoveRange(slotCount, slots.Count - slotCount);
+        SelectedSlot = Mathf.Clamp(SelectedSlot, 0, slotCount - 1);
     }
 
     /// <summary>How many of this item would fit right now.</summary>
@@ -71,28 +76,39 @@ public class PlayerInventory : MonoBehaviour
     /// Adds as many as fit (existing stacks first, then empty slots).
     /// Returns how many were actually added (0 = inventory full).
     /// </summary>
-    public int AddItem(ItemData item, int amount)
+    public int AddItem(ItemData item, int amount) => AddItem(item, amount, out _);
+
+    /// <summary>
+    /// Same as <see cref="AddItem(ItemData, int)"/>, and also reports which slot the item
+    /// ended up in (the last slot touched; for a non-stackable item that's its only slot,
+    /// which is what PlayerEquipment/ItemPickupInteractor use to auto-equip a first pickup).
+    /// -1 if nothing was added.
+    /// </summary>
+    public int AddItem(ItemData item, int amount, out int lastSlotUsed)
     {
+        lastSlotUsed = -1;
         if (item == null || amount <= 0) return 0;
         int left = amount;
 
-        foreach (InventorySlot s in slots) // top up existing stacks
+        for (int i = 0; i < slots.Count && left > 0; i++) // top up existing stacks
         {
-            if (left == 0) break;
+            InventorySlot s = slots[i];
             if (s.IsEmpty || s.item != item) continue;
             int add = Mathf.Min(left, item.MaxStack - s.amount);
             if (add <= 0) continue;
             s.amount += add;
             left -= add;
+            lastSlotUsed = i;
         }
-        foreach (InventorySlot s in slots) // then start new stacks
+        for (int i = 0; i < slots.Count && left > 0; i++) // then start new stacks
         {
-            if (left == 0) break;
+            InventorySlot s = slots[i];
             if (!s.IsEmpty) continue;
             int add = Mathf.Min(left, item.MaxStack);
             s.item = item;
             s.amount = add;
             left -= add;
+            lastSlotUsed = i;
         }
 
         int added = amount - left;
