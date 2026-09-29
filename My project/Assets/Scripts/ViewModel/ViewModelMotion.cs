@@ -4,8 +4,11 @@ using UnityEngine.InputSystem;
 /// <summary>
 /// Subtle "alive" motion for the first-person arms. Put it on FirstPersonViewModel
 /// (the parent of Arms). Adds idle breathing and sway, a slight lag when turning,
-/// and a small walking bob. It fades mostly out while a swing plays, so it never
-/// fights the PickaxeSwing animation on the child Arms object.
+/// a small walking bob and a slower, heavier running bob. It fades mostly out while
+/// a swing plays, so it never fights the PickaxeSwing animation on the child Arms object.
+/// The hands and the held item move together because this moves their shared parent.
+/// (The head bob is separate, on CameraEffects; the hands ride along with it and this
+/// only adds their own motion relative to the camera.)
 /// </summary>
 [DefaultExecutionOrder(60)] // after PlayerMotionState, before FirstPersonArmsIK
 public class ViewModelMotion : MonoBehaviour
@@ -33,6 +36,25 @@ public class ViewModelMotion : MonoBehaviour
     [SerializeField, Min(0f)] private float walkBobAmount = 0.008f;
     [Tooltip("Bob cycles per metre walked.")]
     [SerializeField, Min(0f)] private float walkBobFrequency = 0.9f;
+
+    [Header("Run Bob (while sprinting)")]
+    [Tooltip("Overall size of the running bob. 0 = off, 1 = default, 2 = double.")]
+    [SerializeField, Range(0f, 3f)] private float runBobIntensity = 1f;
+    [Tooltip("Up/down cycles per second while running. Lower = slower, heavier rhythm. " +
+             "The side-to-side sway runs at half this rate. Doesn't change the running speed.")]
+    [SerializeField, Range(0.3f, 4f)] private float runBobFrequency = 1.4f;
+    [Tooltip("How far the hands dip down on each cycle, metres.")]
+    [SerializeField, Min(0f)] private float runVerticalAmplitude = 0.035f;
+    [Tooltip("Side-to-side sway, metres.")]
+    [SerializeField, Min(0f)] private float runHorizontalAmplitude = 0.025f;
+    [Tooltip("Forward/back push with each cycle, metres.")]
+    [SerializeField, Min(0f)] private float runForwardAmplitude = 0.012f;
+    [Tooltip("Rotational sway in degrees: X = tip down with each dip, Y = turn with the sway, Z = roll with the sway.")]
+    [SerializeField] private Vector3 runRotationAmplitude = new Vector3(2.5f, 1.5f, 3.5f);
+    [Tooltip("How quickly the running bob fades in when you start sprinting (full blend per second).")]
+    [SerializeField, Min(0.1f)] private float runBlendInSpeed = 2.5f;
+    [Tooltip("How quickly it fades out when you stop sprinting or stop moving (full blend per second).")]
+    [SerializeField, Min(0.1f)] private float runBlendOutSpeed = 3f;
 
     [Header("While Swinging")]
     [Tooltip("How much idle/bob motion stays during a swing (0 = none).")]
@@ -70,10 +92,12 @@ public class ViewModelMotion : MonoBehaviour
     [SerializeField] private PickaxeSwing pickaxeSwing;
     [SerializeField] private CharacterController characterController;
     [SerializeField] private PlayerMotionState motionState;
+    [SerializeField] private PlayerMovement playerMovement;
 
     private Vector3 restPosition;
     private Quaternion restRotation;
     private float idleTime, bobPhase, bobWeight, motionWeight = 1f;
+    private float runPhase, runWeight;
     private Vector2 lookSway, lookSwayVelocity;
     private Vector3 airPos, airPosVel;
     private float airTilt, airTiltVel;
@@ -86,6 +110,7 @@ public class ViewModelMotion : MonoBehaviour
         if (pickaxeSwing == null) pickaxeSwing = GetComponentInChildren<PickaxeSwing>();
         if (characterController == null) characterController = GetComponentInParent<CharacterController>();
         if (motionState == null) motionState = GetComponentInParent<PlayerMotionState>();
+        if (playerMovement == null) playerMovement = GetComponentInParent<PlayerMovement>();
     }
 
     private void OnEnable() { if (pickaxeSwing != null) pickaxeSwing.HitLanded += OnHit; }
@@ -123,11 +148,41 @@ public class ViewModelMotion : MonoBehaviour
             Vector3 v = characterController.velocity;
             speed = new Vector2(v.x, v.z).magnitude;
         }
+        // --- Run weight: how much the running bob replaces the walking one ---
+        // Grows with speed while sprinting, so starting a run from a standstill builds up
+        // naturally; fades out when sprint is released, you stop, or leave the ground.
+        float runTarget = 0f;
+        if (playerMovement != null && playerMovement.IsSprinting)
+            runTarget = Mathf.Clamp01(speed / Mathf.Max(playerMovement.WalkSpeed, 0.01f));
+        float runRate = runTarget > runWeight ? runBlendInSpeed : runBlendOutSpeed;
+        runWeight = Mathf.MoveTowards(runWeight, runTarget, runRate * dt);
+        float walkShare = 1f - runWeight;
+
         bobWeight = Mathf.MoveTowards(bobWeight, Mathf.Clamp01(speed / 4f), 4f * dt);
         bobPhase += speed * walkBobFrequency * dt * 2f * Mathf.PI;
         pos += new Vector3(Mathf.Sin(bobPhase * 0.5f) * walkBobAmount,
-                           -Mathf.Abs(Mathf.Cos(bobPhase * 0.5f)) * walkBobAmount, 0f) * bobWeight;
-        rot.z += Mathf.Sin(bobPhase * 0.5f) * 0.8f * bobWeight;
+                           -Mathf.Abs(Mathf.Cos(bobPhase * 0.5f)) * walkBobAmount, 0f) * (bobWeight * walkShare);
+        rot.z += Mathf.Sin(bobPhase * 0.5f) * 0.8f * bobWeight * walkShare;
+
+        // --- Run bob: slower, larger, heavier (its own rhythm, not tied to distance) ---
+        // A smooth dip per cycle (no sharp bounce at the top), a side-to-side sway at half
+        // the rate (together a figure-eight), a small forward push, and rotation that lags
+        // slightly behind the movement so the hands and tool feel like they have weight.
+        if (runWeight > 0f)
+        {
+            runPhase += runBobFrequency * 2f * Mathf.PI * dt;
+            if (runPhase > 1000f) runPhase -= 4f * Mathf.PI * 50f; // keep precision, stays in phase
+            float dip = 0.5f - 0.5f * Mathf.Cos(runPhase);           // 0 → 1 → 0, smooth
+            float sway = Mathf.Sin(runPhase * 0.5f);
+            float k = runWeight * runBobIntensity;
+            pos += new Vector3(sway * runHorizontalAmplitude,
+                               -dip * runVerticalAmplitude,
+                               Mathf.Sin(runPhase) * runForwardAmplitude) * k;
+            rot += new Vector3(
+                (0.5f - 0.5f * Mathf.Cos(runPhase - 0.6f)) * runRotationAmplitude.x, // tips down just after the dip
+                Mathf.Sin(runPhase * 0.5f - 0.4f) * runRotationAmplitude.y,        // turns with the sway, lagging
+                -Mathf.Sin(runPhase * 0.5f - 0.3f) * runRotationAmplitude.z) * k;  // rolls into the sway, lagging
+        }
 
         pos *= motionWeight;
         rot *= motionWeight;

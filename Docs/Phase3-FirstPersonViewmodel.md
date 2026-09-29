@@ -134,7 +134,13 @@ All the motion is built from a few sine waves at different speeds. None of them 
 - **Breathing:** a slow up/down movement (one breath every 4 s by default, 6 mm). The pickaxe dips slightly on each breath, as if its weight is pulling the arms down.
 - **Sway:** tiny side-to-side and rolling movement at three different speeds.
 - **Look sway:** when you turn, the arms lag a few degrees behind and then catch up (smoothed). This makes the pickaxe feel like it has weight.
-- **Walk bob:** a figure-eight bob driven by your actual ground speed, so sprinting bobs faster. It fades out when you stop.
+- **Walk bob:** a figure-eight bob driven by your actual ground speed. It fades out when you stop.
+- **Run bob (sprinting):** a separate, slower and bigger layer that replaces the walk bob while you sprint:
+  - **Rhythm:** its own cycle, 1.4 per second, not tied to distance. The walk bob used to reach about 6 dips a second at sprint speed.
+  - **Motion:** a smooth dip with no sharp bounce, a side-to-side sway at half that rate (together a figure-eight), and a small forward push.
+  - **Weight:** pitch, yaw and roll lag just behind the movement, so the tool feels heavy.
+  - **Blending:** it grows with speed while Shift is held and crossfades with the walk bob, so walk ↔ run never snaps. Stopping, releasing Shift or jumping fades it out.
+  - **What it affects:** only the hands and the held item. They move together because this moves their shared parent. Your running speed and the camera's head bob (`CameraEffects`) are unchanged. The hands already ride along with the head bob; this only adds their own motion on top.
 - **Blending with swings:** while a swing plays, the idle and bob motion fade down to 15% over about 0.15 s, then fade back in afterwards. The swing never fights the idle, and nothing snaps.
 
 | Field | Default | What it does |
@@ -148,6 +154,14 @@ All the motion is built from a few sine waves at different speeds. None of them 
 | Look Sway Smoothing | 8 | How fast the arms catch up (lower = heavier) |
 | Walk Bob Amount | 0.008 | Metres; 0 turns it off |
 | Walk Bob Frequency | 0.9 | Bob cycles per metre walked |
+| **Run Bob Intensity** | 1 | Overall size of the running bob (0 = off, 2 = double) |
+| **Run Bob Frequency** | 1.4 | Up/down cycles per second while sprinting (sway at half); lower = slower, heavier |
+| Run Vertical Amplitude | 0.035 | Metres the hands dip per cycle |
+| Run Horizontal Amplitude | 0.025 | Metres of side-to-side sway |
+| Run Forward Amplitude | 0.012 | Metres of forward/back push |
+| Run Rotation Amplitude | (2.5, 1.5, 3.5) | Degrees: X tip down with the dip, Y turn with the sway, Z roll with the sway |
+| Run Blend In Speed | 2.5 | How fast it fades in when you start sprinting (per second) |
+| Run Blend Out Speed | 3 | How fast it fades out when you stop / release sprint (per second) |
 | Motion While Swinging | 0.15 | How much idle motion is kept during a swing |
 | Blend Speed | 6 | How quickly idle fades out and in around swings |
 
