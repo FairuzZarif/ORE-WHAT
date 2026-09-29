@@ -675,3 +675,230 @@ Wheel. Down → slot 1, up → slot 2.
 - **Icons are rendered once** from the world prefab. After changing a model, use **Regenerate Item Icons**.
 - **Low hold position:** on very short/wide windows the held ore sits partly behind the hotbar; raise `ItemHolder` if needed.
 - **Not saved:** the inventory isn't saved between sessions.
+
+---
+
+## 15. Pistol and Assault Rifle (holdable only) (update)
+
+Two weapons from the **Flat Guns West** pack (`Assets/flat_guns_west/Flat Guns West/FBX/`) can be picked up, selected on the hotbar and held in first person. They can't shoot yet: there's no ammo, firing, reloading, recoil or damage.
+
+| | Pistol | Assault Rifle |
+|---|---|---|
+| Source model | `Pistol_Full_West.Rig.fbx` (22 cm, rigged) | `Rifle_Assault_West.Rig.fbx` (70 cm, rigged) |
+| Item | `Assets/Items/Pistol.asset` (Weapon) | `Assets/Items/AssaultRifle.asset` (Weapon) |
+| Held model | `Assets/Prefabs/Weapons/PistolModel.prefab` | `Assets/Prefabs/Weapons/AssaultRifleModel.prefab` |
+| World prefab | `Assets/Prefabs/Items/Pistol.prefab` | `Assets/Prefabs/Items/AssaultRifle.prefab` |
+| First-person view | `PlayerCamera/PistolViewModel` | `PlayerCamera/AssaultRifleViewModel` |
+| Hands | right hand on the grip; left hand lowered out of view | right hand on the grip; left hand on the magazine well |
+
+**How it fits the existing systems** (no new runtime scripts):
+- **Items:** Category **Weapon** makes them equippable. **Can Mine** is off, so clicking with a gun does nothing.
+- **Pickup and hotbar:** E picks them up (auto-selected only if your hands are empty), 1–7 or the mouse wheel select them, and G throws them. Q drops them as usual.
+- **Views:** each gun's view is a copy of `FirstPersonViewModel` (the same arms, IK, idle, walk and run bob) with the pickaxe mount removed. The gun mesh and both grip points sit on a `WeaponHolder`. Each view is registered in **Player Equipment → Views**, so selecting a gun shows its view.
+- **Rigs:** the FBX rigs (slide, trigger, magazine, bolt, etc.) are kept intact for future animation.
+- **Icons:** rendered automatically, like the other items; the pack has none.
+
+**Test items:** the scene objects **"Pistol (pickup)"** and **"Assault Rifle (pickup)"** lie near the player's start, like the Hammer. Delete them to remove the test weapons. The inventory doesn't give weapons automatically.
+
+**Setup:** menu **Ore What → Add Weapons**. It's safe to rerun: it rebuilds only the two views and keeps the existing items, prefabs and pickups. It's also run by **Add Mining Setup To Scene**. To change how a gun is held, edit its `holdPosition`, `holdEuler` or `supportPoint` in `WeaponSetupTool` and rerun.
+
+**Measured in Play mode** (real key/mouse input, 18/18 passed):
+- **Pickup:** E picked up both guns without replacing the held pickaxe (slots: Pickaxe | Pistol | Assault Rifle).
+- **Switching:** 2 → only `PistolViewModel` active; 3 → only `AssaultRifleViewModel`; 2 ↔ 3 switched cleanly.
+- **Mining:** with either gun, clicking at a rock did nothing (5 → 5). Back on the pickaxe, it mined (5 → 4).
+- **Throw:** G threw the rifle (6 m/s); its slot emptied and the hands were empty. It landed on the ground.
+- **Clean:** no missing references in the scene or the new assets, and the console had no errors.
+
+**Limitations**
+- **Hold pose:** the guns are held at the hip, not aimed down the sights. The pistol is one-handed because a two-handed pistol grip would overlap the hands with the current IK.
+- **Pack coverage:** only the West pack is in the project; the East pack isn't imported.
+
+---
+
+## 16. Shooting, reloading and weapon sounds (update)
+
+Both guns can now fire and reload. **Ammo is infinite:** there's no ammo counter, reserve or ammo item, and a reload always works.
+
+| | Pistol | Assault Rifle |
+|---|---|---|
+| Fire | one shot per click | hold to fire |
+| Fire cooldown | 0.15 s | 0.1 s (600 per minute) |
+| Reload (R) | 1.4 s | 2.2 s |
+| Range | 60 m | 120 m |
+| Damage (IDamageable) | 20 | 25 |
+| Rock damage | 1 (5 shots break a rock) | 1 |
+| Rig parts used | Slide (per shot + rack), Magazine | Bolt (per shot), Magazine, Charging Handle |
+
+**How it's built** (new scripts in `Assets/Scripts/Weapons/`):
+- **`WeaponController`** (a `HeldItemController`) sits on each gun's view (`PistolViewModel`, `AssaultRifleViewModel`).
+  - Only the selected item's view is active, so only the gun in your hands can fire or reload.
+  - Switching away deactivates it, which stops firing, cancels a reload and resets the gun.
+  - After you switch to a gun, the button must be released before it fires, so a held button doesn't carry over.
+- **`IDamageable`:** an interface for future enemies and breakables. Shots call `TakeDamage`.
+- **Hit detection:** one ray from the centre of the camera.
+  - **Ignored:** the Player and ViewModel layers, and anything under the Player object.
+  - **Rocks:** take **Rock Damage** through their normal `RockHealth.TakeHit`. Set Rock Damage to 0 if guns shouldn't break rocks.
+  - **Physics objects:** get a small push.
+  - **Anything else:** just registers the hit (the `ShotHit` event).
+- **Recoil:** moves the `WeaponHolder`. The hand grips are its children, so the hands follow through the existing IK. The camera gets a small visual kick through CameraEffects; your aim isn't changed.
+- **Reload:** the gun dips and rolls, the magazine drops out and back in, then the slide or charging handle is racked. Firing is blocked meanwhile, and a second R is ignored.
+- **Muzzle flash:** a few glowing sprites plus a quick light at the rig's `Attach_Muzzle` bone. Material: `Assets/Materials/Weapons/MuzzleFlash.mat`.
+- **Impacts:** a small debris burst using `RockChips.mat`.
+- **Sounds:** the project has no audio files, so placeholder fire, reload and equip sounds are synthesised at startup. They play from the gun, just in front of the camera.
+  - Real clips assigned in the Inspector replace them.
+  - The reload sound plays on its own source and never overlaps; fire sounds may overlap for automatic fire.
+
+**Inspector** (select `PlayerCamera/PistolViewModel` or `AssaultRifleViewModel` → **Weapon Controller**):
+- **Firing:** Automatic, Fire Cooldown, Range, Damage, Rock Damage, Hit Force, Hit Layers.
+- **Reload:** Duration, Offset, Tilt.
+- **Recoil:** Kick, Rotation, Camera Kick, Recovery, Max Stack.
+- **Rig parts:** slide / magazine / charging handle, and how far each moves.
+- **Muzzle flash:** particles, light, light time.
+- **Impact:** material, particle count.
+- **Sound:** Fire / Reload / Equip clip and volume, fire pitch range.
+
+Rerunning **Ore What → Add Weapons** rebuilds the views and resets these values to the defaults in `WeaponSetupTool`. Change them there if you want your tuning to survive a rebuild.
+
+**Sound files to import** (optional; drag them onto the fields above):
+- a pistol shot;
+- a rifle shot (a short single shot, not a loop);
+- a pistol reload and a rifle reload, about as long as each Reload Duration;
+- optionally a weapon handling/equip sound.
+
+**Measured in Play mode** (real key/mouse input): 30/30 checks passed, plus a separate re-check that the pickaxe still mines (the first mining check was on a rock the pistol had already broken).
+- **Pistol:**
+  - one shot per click; holding the button didn't fire again;
+  - 3 clicks gave 3 shots, and 2 clicks within 0.1 s gave 1 shot;
+  - muzzle light and particles appeared;
+  - the fire sound played from the gun, 0.44 m from the camera;
+  - a shot at a rock took it 5 → 4.
+- **Reload:**
+  - R started it and the sound played;
+  - a click during the reload didn't fire, and a second R didn't restart it;
+  - the magazine moved 0.12 m out and back;
+  - it finished after 1.4 s and firing resumed.
+- **Rifle:** held fire gave 9 shots in 1.0 s.
+- **Switching:**
+  - switching to the pistol while holding the button stopped the rifle, and the pistol didn't fire until the button was released;
+  - switching mid-reload cancelled it cleanly, and the other gun wasn't reloading.
+- **Self-hits:** a shot straight down hit the terrain, not the player; no shot ever hit the player or the view.
+- **No ammo UI:** there's no ammo text anywhere; the status reads "Holding: Assault Rifle [G] Throw".
+- **Existing systems:** the pickaxe mines (5 → 4), F stores ore, G throws a gun, and the console is clean.
+
+---
+
+## 17. Magazines (finite) with infinite spare magazines, and a visible reload (update)
+
+This replaces §16's "infinite ammo". Each gun now has a **finite magazine**. Only the **spare magazines** are infinite: there's no reserve count, no magazine count, no ammo pickups, and no HUD counter. The magazine is tracked internally.
+
+| | Pistol | Assault Rifle |
+|---|---|---|
+| Magazine Capacity | 12 | 30 |
+| Firing | 1 round per click | 1 round per shot while held (0.1 s) |
+| Reload Duration | 1.8 s | 2.4 s |
+
+**Rules** (`WeaponController`, unchanged architecture):
+- **Firing:** every shot uses 1 round. At 0 the gun stops at once and won't fire again, whether you hold the button or press it again. Each new press gives only an **empty click**, at most one per 0.3 s.
+- **No auto-reload:** you press **R**. R is ignored while the magazine is full; **Reload When Full** allows it.
+- **Refill:** the magazine refills to capacity only when the reload **finishes**. Switching away mid-reload cancels it and keeps the rounds you had.
+- **Each gun keeps its own magazine:** e.g. pistol 5/12 → rifle 17/30 → back to pistol 5/12. Switching never refills.
+
+**The reload you see** (fractions of Reload Duration, under **Reload Timing**):
+
+| Phase | Default | What happens |
+|---|---|---|
+| 1. Preparation | 0 – Hand Reach (0.08) | the gun rises toward the centre and rolls so its magazine well faces you; the left hand starts reaching |
+| 2. Removal | Magazine Out (0.24) – Magazine Gone (0.44) | the hand holds the magazine's bottom; the magazine slides straight out of the well, then leaves the view with the hand |
+| 3. Empty | Magazine Gone – New Magazine (0.56) | the gun is shown with no magazine |
+| 4. New magazine | New Magazine – Magazine In (0.76) | the hand brings a magazine up, lines it up under the well and pushes it in |
+| 5. Ready | Rack (0.82), Ready (0.90) – 1 | the slide (pistol) or charging handle (rifle) is racked, the hand returns to its grip, the gun settles, and the magazine is full |
+
+- **The magazine is the imported rig's `Magazine` bone.** Both FBX rigs weight their magazine 100% to that bone (checked: 569 and 2,087 vertices, none partially weighted), so it moves as a clean separate piece. No extra mesh was made, and the source assets weren't changed.
+- **The hand:** the supporting hand's grip point (`LeftHandGrip`) is moved to the magazine, and the existing arm IK follows it.
+- **Reload sounds** are three separate clips, each played when the reload reaches its moment:
+  - **Magazine Out Sound:** at Magazine Out;
+  - **Magazine In Sound:** at Magazine In;
+  - **Rack Sound:** at Rack.
+
+  Nothing plays before the reload visibly starts. Plus an **Empty Sound**.
+
+**Inspector** (Weapon Controller on `PistolViewModel` / `AssaultRifleViewModel`):
+- **Magazine:** Magazine Capacity, Reload When Full, Empty Click Cooldown.
+- **Reload:** Reload Duration, Reload Timing (7 moments), Reload Offset/Tilt.
+- **Rig parts:** Magazine Extract, Magazine Length, Magazine Stow Offset, Support Hand Grip.
+- **Sound:** Empty, Magazine Out, Magazine In, and Rack sounds, plus Reload Volume.
+- **Unchanged:** fire rate, damage, range, recoil and the fire sound.
+
+**Measured in Play mode** (real key/mouse input): 40/40 checks passed. The empty-click check initially failed only because my test looked too late for an 80 ms sound; a frame-by-frame recheck passed.
+- **Pistol:**
+  - 12/12 at the start; 1 round per click; 12 clicks empty it;
+  - clicking at 0 fires nothing and gives one click sound (rate-limited);
+  - no auto-reload.
+- **Pistol reload (R):**
+  - the hand moved 0.25 m toward the magazine by 15%;
+  - the magazine was 0.095 m out at 30% and 0.37 m away at 50% (out of view);
+  - it was 0.077 m from seated at 70% and seated at 80%;
+  - the reload ended full, and firing was blocked during it;
+  - repeating empty → R → 12 twice worked.
+- **Rifle:**
+  - 30/30; 9 shots in 1 s with one round each;
+  - it stopped at exactly 30 shots with the button still held;
+  - releasing and pressing again didn't fire;
+  - the reload moved the magazine 0.054 → 0.336 m out and back to seated, ending 30/30;
+  - two more reloads each gave 30.
+- **Reload sounds:** silent at 15% of the reload, playing at 30%, for both guns.
+- **Switching:**
+  - the pistol kept 5/12 and the rifle 17/30;
+  - switching mid-reload didn't reload the other gun, and the cancelled reload didn't refill.
+- **No ammo HUD, no duplicated items.**
+- **Existing systems:** the pickaxe mines (5 → 4), G throws and E picks up the pickaxe, E carries ore, movement works, and the console is clean.
+
+---
+
+## 18. Pickup highlights (outline on weapons and tools lying in the world) (update)
+
+Weapons and tools on the ground get a thin, slightly glowing outline when you're close enough to pick them up and can see them. This covers the Pistol, Assault Rifle, Pickaxe, Hammer, and any future Tool/Weapon item. Ores don't get one.
+
+**When it shows** (`PickupHighlighter` on the Player, reusing `ItemPickupInteractor`):
+- **Range:** within **Highlight Range** of your eyes. The default 0 means *the pickup range* (2.5 m), so the outline appears exactly when E can reach the item, measured to its nearest part.
+- **On screen, in sight:** it must be on screen and not behind a rock, wall or the terrain.
+- **Strength:** the item you're looking at (the pickup target, which shows the "[E] Pick up" prompt) gets the full outline; other nearby weapons get a softer one.
+- **Hiding:** look away, walk away or pick it up and the outline fades out. It's hidden instantly when picked up.
+
+**How it looks:**
+- **The ring:** a warm yellow-orange ring about 2.5 px wide traces the item's actual silhouette. The gun's own materials aren't changed, and the gun itself doesn't glow.
+- **Through grass:** the ring stays visible over grass, which was what hid the guns. The line-of-sight check stops it showing through solid objects.
+- **Glow:** brightness 1.6 gives a slight bloom glow, so it's easy to see in dark areas.
+
+**How it's built:**
+
+| Piece | Where | What |
+|---|---|---|
+| `PickupHighlighter` | **Player** (Inspector) | all settings (below) and the when-to-show logic |
+| `PickupHighlight` | each weapon/tool **world prefab** root, `Assets/Prefabs/Items/{Pistol, AssaultRifle, Pickaxe, Hammer}.prefab` | shows and fades that item's outline; one field, Outline Renderer |
+| `PickupOutline` child | inside each of those prefabs | disabled `MeshRenderer` with the outline shape (`Assets/Prefabs/Items/Outlines/*_Outline.asset`) and two materials |
+| Shader | `Assets/Shaders/PickupOutline.shader` | "Ore What/Pickup Outline"; the item's silhouette is masked with the stencil and the shape is pushed out by N pixels |
+| Materials | `Assets/Materials/Outline/PickupOutlineMask.mat`, `PickupOutline.mat` | the mask (draws nothing) and the ring |
+| Setup | **Ore What → Add Pickup Highlights** (`PickupHighlightSetupTool`) | builds all of the above for every Tool/Weapon world prefab; safe to rerun |
+
+- **First-person guns get no outline.** They use the separate *Model* prefabs, not the world prefabs; checked: 0 outline objects under the camera.
+- **Other code changes:** `ItemPickupInteractor` only gained three read-only properties (`PickupRange`, `PickupLayer`, `BlockingLayers`). Shooting, magazines, inventory, the hotbar, carrying and mining are unchanged.
+
+**Inspector: Player → Pickup Highlighter:**
+- **Highlight Range:** 0 = pickup range (2.5 m). Raise it, e.g. to 4, to spot weapons from further away.
+- **Only Equippable:** on. Weapons and tools only.
+- **Nearby Strength:** 0.55. Outline strength for items in range that you aren't looking at.
+- **Highlight Color:** warm yellow-orange.
+- **Highlight Intensity:** 1.6. Above 1 glows slightly.
+- **Outline Width:** 2.5 px.
+- **Fade Speed:** 8.
+
+**Adding it to a new weapon:** give its ItemData the Tool or Weapon category and a World Prefab, then run **Ore What → Add Pickup Highlights**.
+
+**Measured in Play mode:**
+- **Pistol and rifle, each:** dropped with `ItemDropper.Drop` (what Q calls). No outline at 6 m. Approaching, it appeared when the nearest part of the gun was within 2.5 m (pistol 2.48 m, rifle 2.44 m; one step earlier, 2.56 / 2.52 m, it didn't).
+- **Hiding:** stepping away hid it (5.6 m); looking away hid it; looking back while close showed it again.
+- **Pickup:** `TryPickup` (what E calls) hid it instantly and removed the world gun.
+- **Behind a rock:** a rifle behind a rock at 2.9 m got **no** outline.
+- **First person:** no outline objects on the held guns. The console is clean.
+- **Not driven by real keys:** Unity didn't have window focus during this test, so simulated keys and mouse were dropped. The pickup, drop and walk steps were therefore driven through the same methods the keys call. Firing and mining weren't re-run this time; their code is untouched and they passed in §17.

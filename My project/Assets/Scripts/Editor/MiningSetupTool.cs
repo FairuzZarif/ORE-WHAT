@@ -72,6 +72,8 @@ public static class MiningSetupTool
         ItemSetupTool.AddToPlayer(player);
         HammerSetupTool.AddHammer(player); // second mining tool: its own view + attack controller
         HotbarSetupTool.Add(player);       // 7-slot hotbar, held-item view, item icons
+        WeaponSetupTool.AddWeapons(player); // Pistol + Assault Rifle (holdable only) and their test pickups
+        PickupHighlightSetupTool.AddAll(player); // outlines on Tool/Weapon pickups + the Player's PickupHighlighter
 
         AssetDatabase.SaveAssets(); // persist material tweaks (metallic/smoothness)
         EditorSceneManager.MarkSceneDirty(player.scene);

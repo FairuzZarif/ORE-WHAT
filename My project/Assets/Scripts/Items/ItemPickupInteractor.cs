@@ -74,6 +74,12 @@ public class ItemPickupInteractor : MonoBehaviour
             return $"[{pickupKey}] Pick up {Target.DisplayName}";
         }
     }
+    /// <summary>How far (from the eyes) an item can be picked up. Also used by PickupHighlighter.</summary>
+    public float PickupRange => pickupRange;
+    /// <summary>Layers that hold pickups.</summary>
+    public LayerMask PickupLayer => pickupLayer;
+    /// <summary>Layers that block the view of an item.</summary>
+    public LayerMask BlockingLayers => blockingLayers;
     /// <summary>A short message such as "Inventory Full", or null.</summary>
     public string Message => Time.time < messageUntil ? message : null;
 
