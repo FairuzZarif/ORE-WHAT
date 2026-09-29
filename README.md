@@ -1,8 +1,8 @@
-# Ore What
-A cooperative first-person mining game ("friendslop" genre, inspired by *How to Fish*). Built in Unity 6.
+# Ore What?
+A cooperative first-person mining game ("friendslop" genre game). Built in Unity 6.
 
 ## Status
-Early prototype. One test level (`Assets/Scenes/PlayerTest.unity`) with mining, an inventory/hotbar, physical item pickup, a pickaxe and hammer, and two early weapons (pistol, assault rifle) with shooting and reloading. No multiplayer yet, no saving between sessions, no currency/economy.
+Early prototype. One test level (`Assets/Scenes/PlayerTest.unity`) with mining, an inventory/hotbar, physical item pickup, a pickaxe and hammer, and two early weapons (pistol, assault rifle) with shooting and reloading. No multiplayer yet, no saving between sessions, no currency/economy - For Now.
 
 ## Playing it
 **Play in the Editor:** open `My project/` in Unity 6000.6.3f1 and press Play on `Assets/Scenes/PlayerTest.unity`.
