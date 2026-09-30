@@ -1,0 +1,58 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9065553ee4e0eae47b81940a3f707e87, type: 3}
+  m_Name: PistolViewModel_RightHand_before
+  m_EditorClassIdentifier: Assembly-CSharp::HandPose
+  joints:
+  - bone: mixamorig:RightHandIndex1
+    localRotation: {x: 0.5404967, y: 0.046983063, z: 0.07274625, w: 0.8368775}
+  - bone: mixamorig:RightHandIndex2
+    localRotation: {x: 0.5504698, y: 0.00000002003583, z: 0.000000048025008, w: 0.8348551}
+  - bone: mixamorig:RightHandIndex3
+    localRotation: {x: 0.39147395, y: -0.000000003957431, z: -0.000000022243267, w: 0.92018926}
+  - bone: mixamorig:RightHandIndex4
+    localRotation: {x: 0, y: -0, z: -0, w: 1}
+  - bone: mixamorig:RightHandMiddle1
+    localRotation: {x: 0.52021843, y: 0.0094798375, z: 0.015559517, w: 0.8538389}
+  - bone: mixamorig:RightHandMiddle2
+    localRotation: {x: -0.56911474, y: -0.00000011588487, z: 0.00000006742718, w: -0.8222582}
+  - bone: mixamorig:RightHandMiddle3
+    localRotation: {x: -0.4227281, y: 0.000000072466115, z: -0.0000000022580116, w: -0.90625656}
+  - bone: mixamorig:RightHandMiddle4
+    localRotation: {x: 0, y: -0, z: -0, w: 1}
+  - bone: mixamorig:RightHandPinky1
+    localRotation: {x: -0.5562887, y: 0.036998495, z: 0.055092197, w: -0.828335}
+  - bone: mixamorig:RightHandPinky2
+    localRotation: {x: 0.53426814, y: -0.000000048147683, z: 0.00000007890715, w: 0.84531504}
+  - bone: mixamorig:RightHandPinky3
+    localRotation: {x: -0.4543914, y: -0.000000019389637, z: 0.00000011249833, w: -0.8908022}
+  - bone: mixamorig:RightHandPinky4
+    localRotation: {x: 0, y: -0, z: -0, w: 1}
+  - bone: mixamorig:RightHandRing1
+    localRotation: {x: 0.5209137, y: -0.007899126, z: -0.01294182, w: 0.85347474}
+  - bone: mixamorig:RightHandRing2
+    localRotation: {x: -0.56478435, y: -0.000000054166804, z: 0.000000090854925, w: -0.8252386}
+  - bone: mixamorig:RightHandRing3
+    localRotation: {x: -0.46143383, y: -0.00000007337348, z: -0.000000041891358, w: -0.88717467}
+  - bone: mixamorig:RightHandRing4
+    localRotation: {x: 0, y: -0, z: -0, w: 1}
+  - bone: mixamorig:RightHandThumb1
+    localRotation: {x: -0.18728927, y: -0.06826155, z: -0.09032354, w: -0.9757586}
+  - bone: mixamorig:RightHandThumb2
+    localRotation: {x: 0.44046128, y: -0.000000015099468, z: -0.00000004862165, w: 0.89777166}
+  - bone: mixamorig:RightHandThumb3
+    localRotation: {x: 0.34938434, y: -0.000000015380166, z: -0.000000016665178, w: 0.93697953}
+  - bone: mixamorig:RightHandThumb4
+    localRotation: {x: 0, y: -0, z: -0, w: 1}
+  hasWrist: 0
+  wristRotation: {x: 0, y: 0, z: 0, w: 1}
+  wristPosition: {x: 0, y: 0, z: 0}

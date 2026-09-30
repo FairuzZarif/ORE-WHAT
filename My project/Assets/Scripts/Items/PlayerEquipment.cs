@@ -39,6 +39,8 @@ public class PlayerEquipment : MonoBehaviour
     [SerializeField] private PlayerInventory inventory;
     [SerializeField] private Camera playerCamera;
     [SerializeField] private OreCarryController carrier;
+    [Tooltip("Optional. The held item is shown in first person somewhere other than its real pose; throws start where it's shown.")]
+    [SerializeField] private FirstPersonPresentation presentation;
 
     [Header("Held item")]
     [Tooltip("Put into the inventory and selected when the game starts (can be empty).")]
@@ -105,6 +107,7 @@ public class PlayerEquipment : MonoBehaviour
         if (inventory == null) inventory = GetComponent<PlayerInventory>();
         if (playerCamera == null) playerCamera = GetComponentInChildren<Camera>(true);
         if (carrier == null) carrier = GetComponent<OreCarryController>();
+        if (presentation == null && playerCamera != null) presentation = playerCamera.GetComponent<FirstPersonPresentation>();
         controller = GetComponent<CharacterController>();
 
         if (startingItem != null && inventory != null && inventory.AddItem(startingItem, 1, out int slot) > 0)
@@ -209,7 +212,7 @@ public class PlayerEquipment : MonoBehaviour
         Transform from = held != null ? held.throwFrom : itemView != null ? itemView.CurrentModel : null;
         if (from != null && from.gameObject.activeInHierarchy)
         {
-            position = from.position;
+            position = presentation != null ? presentation.ToPresented(from.position) : from.position;
             rotation = from.rotation;
         }
 

@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Poses a rigged pair of first-person arms so both hands grip the pickaxe handle.
-/// Put it on the arms model. Every frame, after the swing and idle motion have moved the
-/// pickaxe (and the grip points on it), it:
+/// Poses a pair of rigged arms so both hands grip the held tool. The arms are the player
+/// character's own arm bones (CorporateMiner); the component sits on a child of the first-person
+/// view whose grip points it follows. The shoulders are never moved: FirstPersonPresentation places
+/// the view where the character's real shoulders can reach it. Every frame, after the swing and
+/// idle motion have moved the tool (and the grip points on it), it:
 ///   1. curls the fingers into a fist,
 ///   2. sets each hand's rotation from its grip point (calibrated once, so the hand turns
 ///      rigidly with the pickaxe instead of being re-guessed every frame),
@@ -44,12 +46,23 @@ public class FirstPersonArmsIK : MonoBehaviour
         [HideInInspector] public Transform thumbBase;
         [HideInInspector] public Quaternion thumbBaseRest = Quaternion.identity;
         [Tooltip("The elbow bends toward this point.")] public Transform elbowHint;
+        [Tooltip("Optional hand-made finger pose (captured with Capture Hand Poses). When it has a pose, it replaces " +
+                 "the automatic finger/thumb curl for this hand; the hand itself is still placed on the grip.")]
+        public HandPose handPose;
+        [NonSerialized] public Dictionary<string, Transform> poseBones;
+        // Live editing: the hand's local pose as the IK last left it (a difference = the user moved it).
+        [NonSerialized] public bool liveTracked;
+        [NonSerialized] public Quaternion liveHandLocalRotation;
+        [NonSerialized] public Vector3 liveHandLocalPosition;
         [Tooltip("First bone of the index finger (sets which way the knuckles run).")] public Transform indexKnuckle;
         [Tooltip("First bone of the little finger.")] public Transform pinkyKnuckle;
         [Tooltip("First bones of index, middle, ring, little finger: their joints define the centre of the fist.")]
         public Transform[] fistFingers;
         [Tooltip("Forearm twist bones, elbow to wrist.")] public Transform[] twistBones;
         [Tooltip("How much of the hand's twist each twist bone takes (0..1).")] public float[] twistWeights = { 0.3f, 0.65f };
+        [Tooltip("For rigs without twist bones: how much of the wrist's twist (rotation around the forearm) the forearm " +
+                 "itself takes, so the wrist doesn't look wrung. 0 = all at the wrist.")]
+        [Range(0f, 1f)] public float forearmTwist = 0f;
 
         // Filled in by CaptureRestPose / CalibrateGrips.
         [HideInInspector] public Quaternion handRest = Quaternion.identity;
@@ -76,6 +89,14 @@ public class FirstPersonArmsIK : MonoBehaviour
     [Tooltip("Largest roll around the handle that Grip Adapt may add, in degrees.")]
     [SerializeField, Range(0f, 90f)] private float maxGripAdapt = 35f;
 
+    [Header("Hand pose editing")]
+    [Tooltip("Play mode only. While ticked: the hands stay on the item, the body animation holds still, and the " +
+             "fingers are left alone so you can rotate the finger joints (…HandIndex1/2/3 etc.) in the Scene view " +
+             "and see it live. Everything you change is saved into the Hand Pose assets as you go. Untick when done.")]
+    [SerializeField] private bool editHandPoseLive;
+    private bool liveEditing;
+    private Animator liveAnimator;
+
     // Filled in by the setup tool: each finger joint, its untouched rotation, and how it curls.
     [SerializeField, HideInInspector] private Transform[] curlJoints = Array.Empty<Transform>();
     [SerializeField, HideInInspector] private Quaternion[] curlRest = Array.Empty<Quaternion>();
@@ -87,10 +108,123 @@ public class FirstPersonArmsIK : MonoBehaviour
     /// <summary>Poses the arms now. Also called by the editor tool so the scene shows the grip.</summary>
     public void Solve()
     {
+        if (editHandPoseLive && Application.isPlaying)
+        {
+            SolveLiveEdit();
+            return;
+        }
+        if (liveEditing) EndLiveEdit();
+
         ApplyFingerCurl();
         SolveArm(leftArm, adapt: true);
         SolveArm(rightArm, adapt: true);
+        ApplyHandPose(leftArm);
+        ApplyHandPose(rightArm);
     }
+
+    private void OnDisable()
+    {
+        if (liveEditing) EndLiveEdit();
+    }
+
+    /// <summary>
+    /// Live pose editing: the arms keep following the grips, but the fingers are left exactly as
+    /// the user rotates them (the character's Animator is paused so it doesn't overwrite them),
+    /// and they're recorded into the Hand Pose assets every frame.
+    /// </summary>
+    private void SolveLiveEdit()
+    {
+        if (!liveEditing)
+        {
+            liveEditing = true;
+            liveAnimator = leftArm.upperArm != null ? leftArm.upperArm.GetComponentInParent<Animator>() : null;
+            if (liveAnimator != null) liveAnimator.enabled = false;
+            ApplyFingerCurl(); // start from what was showing
+            ApplyHandPose(leftArm);
+            ApplyHandPose(rightArm);
+        }
+        // The user rotated/moved the hand bone since last frame: that's the new wrist, relative to the grip.
+        foreach (Arm arm in new[] { leftArm, rightArm })
+        {
+            if (!arm.liveTracked || arm.handPose == null || !IsValid(arm)) continue;
+            bool rotated = Quaternion.Angle(arm.hand.localRotation, arm.liveHandLocalRotation) > 0.05f;
+            bool moved = (arm.hand.localPosition - arm.liveHandLocalPosition).sqrMagnitude > 1e-8f;
+            if (!rotated && !moved) continue;
+            arm.handPose.SetWrist(arm.hand, arm.gripTarget);
+            arm.hand.localPosition = arm.liveHandLocalPosition; // keep the bone length; the arm reaches the new spot instead
+        }
+        SolveArm(leftArm, adapt: false, touchFingers: false);
+        SolveArm(rightArm, adapt: false, touchFingers: false);
+        foreach (Arm arm in new[] { leftArm, rightArm })
+        {
+            if (arm.handPose == null || arm.hand == null) continue;
+            arm.liveTracked = true;
+            arm.liveHandLocalRotation = arm.hand.localRotation;
+            arm.liveHandLocalPosition = arm.hand.localPosition;
+            arm.handPose.Capture(arm.hand);
+#if UNITY_EDITOR
+            UnityEditor.EditorUtility.SetDirty(arm.handPose);
+#endif
+        }
+    }
+
+    private void EndLiveEdit()
+    {
+        liveEditing = false;
+        leftArm.liveTracked = rightArm.liveTracked = false;
+        if (liveAnimator != null) liveAnimator.enabled = true;
+        liveAnimator = null;
+#if UNITY_EDITOR
+        UnityEditor.AssetDatabase.SaveAssets();
+        Debug.Log($"[Ore What] Hand poses saved for {transform.parent.name}.", this);
+#endif
+    }
+
+    /// <summary>Hand-made finger pose on top of the placed hand (only the finger joints change).</summary>
+    private static void ApplyHandPose(Arm arm)
+    {
+        if (arm.handPose == null || !arm.handPose.HasPose || arm.hand == null) return;
+        if (arm.poseBones == null)
+        {
+            arm.poseBones = new Dictionary<string, Transform>();
+            foreach (Transform t in arm.hand.GetComponentsInChildren<Transform>(true))
+                if (t != arm.hand) arm.poseBones[t.name] = t;
+        }
+        foreach (HandPose.Joint j in arm.handPose.Joints)
+            if (arm.poseBones.TryGetValue(j.bone, out Transform t)) t.localRotation = j.localRotation;
+    }
+
+#if UNITY_EDITOR
+    /// <summary>
+    /// Saves the current finger joints of both hands into their Hand Pose assets. Use in Play mode:
+    /// equip the item, pause, rotate the finger joints in the Scene view, then run this.
+    /// </summary>
+    [ContextMenu("Capture Hand Poses")]
+    private void CaptureHandPoses()
+    {
+        foreach (Arm arm in new[] { leftArm, rightArm })
+        {
+            if (arm.handPose == null || arm.hand == null)
+            {
+                Debug.LogWarning("[Ore What] No Hand Pose asset on this arm: run Ore What > Use Character Arms In First Person to create them.", this);
+                continue;
+            }
+            arm.handPose.Capture(arm.hand);
+            UnityEditor.EditorUtility.SetDirty(arm.handPose);
+        }
+        UnityEditor.AssetDatabase.SaveAssets();
+        Debug.Log($"[Ore What] Hand poses captured for {transform.parent.name}.", this);
+    }
+
+    /// <summary>Back to the automatic finger curl.</summary>
+    [ContextMenu("Clear Hand Poses")]
+    private void ClearHandPoses()
+    {
+        foreach (Arm arm in new[] { leftArm, rightArm })
+            if (arm.handPose != null) { arm.handPose.Clear(); UnityEditor.EditorUtility.SetDirty(arm.handPose); }
+        UnityEditor.AssetDatabase.SaveAssets();
+    }
+#endif
 
     /// <summary>Used by the setup tool to register the finger joints and their curl axes.</summary>
     public void SetCurlJoints(Transform[] joints, Vector3[] axes, bool[] isThumb)
@@ -110,7 +244,7 @@ public class FirstPersonArmsIK : MonoBehaviour
             {
                 arm.handRest = arm.hand.localRotation;
                 foreach (Transform child in arm.hand)
-                    if (child.name.StartsWith("finger_thumb")) { arm.thumbBase = child; arm.thumbBaseRest = child.localRotation; break; }
+                    if (IsThumb(child)) { arm.thumbBase = child; arm.thumbBaseRest = child.localRotation; break; }
             }
             arm.twistRest = arm.twistBones == null ? Array.Empty<Quaternion>()
                 : Array.ConvertAll(arm.twistBones, b => b != null ? b.localRotation : Quaternion.identity);
@@ -246,7 +380,7 @@ public class FirstPersonArmsIK : MonoBehaviour
     {
         Transform thumb1 = null;
         foreach (Transform child in arm.hand)
-            if (child.name.StartsWith("finger_thumb")) { thumb1 = child; break; }
+            if (IsThumb(child)) { thumb1 = child; break; }
         if (thumb1 == null || thumb1.childCount == 0) return Vector3.zero;
         Transform mid = thumb1.GetChild(0), tip = mid;
         while (tip.childCount > 0) tip = tip.GetChild(0);
@@ -260,13 +394,17 @@ public class FirstPersonArmsIK : MonoBehaviour
         return Vector3.Dot(ThumbDirection(arm), arm.gripTarget.up);
     }
 
+    // "finger_thumb1.l" (WRAD arms) or "mixamorig:LeftHandThumb1" (the character).
+    private static bool IsThumb(Transform t) => t.name.IndexOf("thumb", StringComparison.OrdinalIgnoreCase) >= 0;
+
     private static bool IsValid(Arm arm) =>
         arm.upperArm != null && arm.forearm != null && arm.hand != null && arm.gripTarget != null
         && arm.indexKnuckle != null && arm.pinkyKnuckle != null;
 
-    private void SolveArm(Arm arm, bool adapt)
+    private void SolveArm(Arm arm, bool adapt, bool touchFingers = true)
     {
         if (!IsValid(arm)) return;
+        Quaternion thumbPose = arm.thumbBase != null ? arm.thumbBase.localRotation : Quaternion.identity;
         if (arm.thumbBase != null) arm.thumbBase.localRotation = arm.thumbBaseRest; // fist shape measured with the thumb at rest
 
         Quaternion handRotation;
@@ -294,9 +432,19 @@ public class FirstPersonArmsIK : MonoBehaviour
             handRotation = NaturalHandRotation(arm, dir);
         }
 
-        PlaceArm(arm, handRotation);
+        // A hand-placed wrist (Hand Pose) replaces the automatic hand placement.
+        Vector3? wrist = null;
+        if (arm.handPose != null && arm.handPose.HasWrist)
+        {
+            handRotation = arm.gripTarget.rotation * arm.handPose.WristRotation;
+            wrist = arm.gripTarget.TransformPoint(arm.handPose.WristPosition);
+        }
+
+        PlaceArm(arm, handRotation, wrist);
+        ShareTwistWithForearm(arm, handRotation);
         DistributeTwist(arm);
-        AimThumb(arm);
+        if (touchFingers) AimThumb(arm);
+        else if (arm.thumbBase != null) arm.thumbBase.localRotation = thumbPose; // leave the user's thumb as they set it
         arm.lastForearmDir = (arm.hand.position - arm.forearm.position).normalized;
     }
 
@@ -340,13 +488,13 @@ public class FirstPersonArmsIK : MonoBehaviour
     }
 
     /// <summary>Sets the hand to <paramref name="handRotation"/> and bends the arm so the fist centre lands on the grip.</summary>
-    private void PlaceArm(Arm arm, Quaternion handRotation)
+    private void PlaceArm(Arm arm, Quaternion handRotation, Vector3? wristOverride = null)
     {
         Transform hand = arm.hand, upper = arm.upperArm, lower = arm.forearm;
 
-        // Where the centre of the fist's hole sits relative to the wrist (unchanged by the arm's pose).
-        Vector3 localGrip = GripHoleLocal(arm);
-        Vector3 wristTarget = arm.gripTarget.position - handRotation * localGrip;
+        // Where the centre of the fist's hole sits relative to the wrist (unchanged by the arm's pose),
+        // unless the wrist was placed by hand.
+        Vector3 wristTarget = wristOverride ?? arm.gripTarget.position - handRotation * GripHoleLocal(arm);
 
         float upperLen = Vector3.Distance(upper.position, lower.position);
         float lowerLen = Vector3.Distance(lower.position, hand.position);
@@ -384,6 +532,18 @@ public class FirstPersonArmsIK : MonoBehaviour
         // The forearm now only needs to bend around the hinge to reach the wrist target.
         lower.rotation = Quaternion.FromToRotation(hand.position - lower.position, wristTarget - lower.position) * lower.rotation;
         hand.rotation = handRotation;
+    }
+
+    /// <summary>
+    /// Turns the forearm around its own length by part of the wrist's twist and keeps the hand where
+    /// it was, so the twist is shared along the forearm instead of all at the wrist.
+    /// </summary>
+    private static void ShareTwistWithForearm(Arm arm, Quaternion handRotation)
+    {
+        if (arm.forearmTwist <= 0f) return;
+        float twist = TwistAngle(arm.hand.localRotation * Quaternion.Inverse(arm.handRest));
+        arm.forearm.rotation = Quaternion.AngleAxis(twist * arm.forearmTwist, arm.forearm.up) * arm.forearm.rotation;
+        arm.hand.rotation = handRotation;
     }
 
     /// <summary>Spreads the hand's twist (around the forearm) along the forearm twist bones.</summary>
@@ -428,7 +588,7 @@ public class FirstPersonArmsIK : MonoBehaviour
         Transform thumb = arm.indexKnuckle != null ? arm.indexKnuckle.parent : null; // wrist: thumb is a sibling chain
         if (thumb != null)
             foreach (Transform child in thumb)
-                if (child.name.StartsWith("finger_thumb"))
+                if (IsThumb(child))
                     for (Transform j = child.childCount > 0 ? child.GetChild(0) : null; j != null; j = j.childCount > 0 ? j.GetChild(0) : null)
                         joints.Add(toHand * (j.position - hand.position)); // thumb tip joints only
 

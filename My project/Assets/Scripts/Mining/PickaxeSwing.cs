@@ -430,6 +430,9 @@ public class PickaxeSwing : MonoBehaviour
     private void Update()
     {
         float dt = Time.deltaTime;
+        // Mid-swing with no timeline (a script reload doesn't keep it, and this project enters Play
+        // without reloading the scene): settle back to resting instead of reading missing keys.
+        if (phase != Phase.Idle && keys.Count < 2) phase = Phase.Idle;
         // Idle drift fades out while swinging and back in once resting.
         idleWeight = Mathf.MoveTowards(idleWeight, phase == Phase.Idle ? 1f : 0f, dt * (phase == Phase.Idle ? 1.5f : 6f));
 
