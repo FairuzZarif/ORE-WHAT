@@ -5572,19 +5572,19 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1852576806548013000, guid: 146191519aed5374d949c38fca0e1c9d, type: 3}
       propertyPath: m_LocalRotation.w
-      value: 0.9881388
+      value: 0.98813885
       objectReference: {fileID: 0}
     - target: {fileID: 1852576806548013000, guid: 146191519aed5374d949c38fca0e1c9d, type: 3}
       propertyPath: m_LocalRotation.x
-      value: -0.058938574
+      value: -0.058938045
       objectReference: {fileID: 0}
     - target: {fileID: 1852576806548013000, guid: 146191519aed5374d949c38fca0e1c9d, type: 3}
       propertyPath: m_LocalRotation.y
-      value: 0.019319452
+      value: 0.019319687
       objectReference: {fileID: 0}
     - target: {fileID: 1852576806548013000, guid: 146191519aed5374d949c38fca0e1c9d, type: 3}
       propertyPath: m_LocalRotation.z
-      value: 0.14048088
+      value: 0.14048065
       objectReference: {fileID: 0}
     - target: {fileID: 2158975759703390516, guid: 146191519aed5374d949c38fca0e1c9d, type: 3}
       propertyPath: m_Layer
@@ -5976,15 +5976,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6502182839619065283, guid: 146191519aed5374d949c38fca0e1c9d, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 4.6733103e-11
+      value: 0.000010110438
       objectReference: {fileID: 0}
     - target: {fileID: 6502182839619065283, guid: 146191519aed5374d949c38fca0e1c9d, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 0.37267607
+      value: 0.3726778
       objectReference: {fileID: 0}
     - target: {fileID: 6502182839619065283, guid: 146191519aed5374d949c38fca0e1c9d, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 9.368062e-12
+      value: 0.000014426187
       objectReference: {fileID: 0}
     - target: {fileID: 6502182839619065283, guid: 146191519aed5374d949c38fca0e1c9d, type: 3}
       propertyPath: m_LocalRotation.w
@@ -5992,15 +5992,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6502182839619065283, guid: 146191519aed5374d949c38fca0e1c9d, type: 3}
       propertyPath: m_LocalRotation.x
-      value: 0.08426273
+      value: 0.084262654
       objectReference: {fileID: 0}
     - target: {fileID: 6502182839619065283, guid: 146191519aed5374d949c38fca0e1c9d, type: 3}
       propertyPath: m_LocalRotation.y
-      value: -0.054927357
+      value: -0.054927304
       objectReference: {fileID: 0}
     - target: {fileID: 6502182839619065283, guid: 146191519aed5374d949c38fca0e1c9d, type: 3}
       propertyPath: m_LocalRotation.z
-      value: -0.04954747
+      value: -0.049547415
       objectReference: {fileID: 0}
     - target: {fileID: 6514210125699187276, guid: 146191519aed5374d949c38fca0e1c9d, type: 3}
       propertyPath: m_Layer
@@ -7065,7 +7065,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FirstPersonPresentation
   character: {fileID: 1146509117}
-  layoutShoulders: {x: -0.008972168, y: -0.15056765, z: 0.13400269}
+  layoutShoulders: {x: -0.009, y: -0.251, z: 0.134}
   viewModelCamera: {fileID: 1838340374}
   carryPoint: {fileID: 991776273}
   carryHolder: {fileID: 322953895}
@@ -10594,7 +10594,7 @@ MonoBehaviour:
     twistWeights:
     - 0.3
     - 0.65
-    forearmTwist: 0
+    forearmTwist: 0.6
     handRest: {x: 0.005403194, y: 0.003624663, z: 0.028983751, w: 0.99955875}
     elbowHingeLocal: {x: -0.12544584, y: 0.00004261732, z: -0.9921008}
     twistRest: []
@@ -10626,7 +10626,7 @@ MonoBehaviour:
     twistWeights:
     - 0.3
     - 0.65
-    forearmTwist: 0
+    forearmTwist: 0.6
     handRest: {x: -0.0022183005, y: 0.015612905, z: -0.030835716, w: 0.9994001}
     elbowHingeLocal: {x: -0.0025090724, y: 0.00006955862, z: 0.9999969}
     twistRest: []
@@ -10946,7 +10946,7 @@ Transform:
   m_GameObject: {fileID: 1918792637}
   serializedVersion: 2
   m_LocalRotation: {x: 0.68558407, y: 0.17313114, z: 0.17313117, w: 0.6855842}
-  m_LocalPosition: {x: 0, y: 0.07, z: 0.17}
+  m_LocalPosition: {x: 0, y: 0.076, z: 0.215}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []

@@ -24,9 +24,12 @@ public class FirstPersonPresentation : MonoBehaviour
 {
     [Tooltip("The player character. Its real shoulders (upper-arm joints) are where the held item's layout is anchored.")]
     [SerializeField] private Animator character;
-    [Tooltip("The shoulder point the first-person layouts were designed around, in camera space " +
-             "(midpoint between the shoulders). This point is moved onto the character's real shoulders.")]
-    [SerializeField] private Vector3 layoutShoulders = new Vector3(-0.009f, -0.151f, 0.134f);
+    [Tooltip("Where the character's shoulders are shown, in camera space (midpoint between the shoulders); the held " +
+             "item stays where it is on screen. Lower = shoulders and upper arms further out of view, but the arms " +
+             "reach further. The old floating arms' layout used (−0.009, −0.151, 0.134); the miner's shoulders are " +
+             "narrower (±11 cm, not ±21 cm), so at that height they showed in the bottom of the view — 10 cm lower " +
+             "keeps them out (upper arm ≤ 6° into view, ≥ 24 cm from the lens) with arm reach ≤ 95%.")]
+    [SerializeField] private Vector3 layoutShoulders = new Vector3(-0.009f, -0.251f, 0.134f);
     [Tooltip("The overlay camera that draws the arms and the held item. Gets the same offset, so the image doesn't change.")]
     [SerializeField] private Transform viewModelCamera;
     [Tooltip("Optional. Kept at Carry Holder's presented position: OreCarryController pulls carried ores here, " +

@@ -31,7 +31,8 @@ public static class FirstPersonCharacterArmsTool
     private const string CarryPointName = "CarryPoint";
     // Midpoint of the shoulders the first-person layouts were designed around (camera space): the old
     // arms' shoulders were at (-0.221, -0.151, 0.134) and (0.203, -0.151, 0.134).
-    private static readonly Vector3 DefaultLayoutShoulders = new Vector3(-0.009f, -0.151f, 0.134f);
+    // Shown 10 cm lower than that: the miner's shoulders are narrower, and at the old height they showed in view.
+    private static readonly Vector3 DefaultLayoutShoulders = new Vector3(-0.009f, -0.251f, 0.134f);
     private static readonly string[] OldAnchorNames = { "LeftShoulderAnchor", "RightShoulderAnchor" };
 
     [MenuItem("Ore What/Use Character Arms In First Person")]
