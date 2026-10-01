@@ -2651,6 +2651,8 @@ GameObject:
   - component: {fileID: 96825205}
   - component: {fileID: 96825206}
   - component: {fileID: 96825207}
+  - component: {fileID: 96825209}
+  - component: {fileID: 96825208}
   m_Layer: 8
   m_Name: Player
   m_TagString: Player
@@ -2693,6 +2695,7 @@ MonoBehaviour:
   jumpHeight: 1.2
   gravity: -20
   groundedStickForce: -2
+  attributes: {fileID: 0}
 --- !u!143 &96825193
 CharacterController:
   m_ObjectHideFlags: 0
@@ -3072,6 +3075,50 @@ MonoBehaviour:
   highlightIntensity: 1.6
   outlineWidth: 2.5
   fadeSpeed: 8
+--- !u!114 &96825208
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 96825190}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0a8e137efc3ad034fb3156c38d9739f8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerStatsHUD
+  attributes: {fileID: 0}
+  margin: {x: 24, y: 22}
+  barSize: {x: 300, y: 22}
+  barGap: 12
+  healthColor: {r: 0.86, g: 0.22, b: 0.2, a: 1}
+  staminaColor: {r: 0.35, g: 0.8, b: 0.35, a: 1}
+  exhaustedColor: {r: 0.85, g: 0.65, b: 0.2, a: 1}
+  backgroundColor: {r: 0.05, g: 0.05, b: 0.06, a: 0.6}
+  textColor: {r: 1, g: 1, b: 1, a: 0.95}
+--- !u!114 &96825209
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 96825190}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 55e4d851ae861854898d30e634dae2b2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerAttributes
+  maxHealth: 100
+  startingHealth: 100
+  maxStamina: 100
+  startingStamina: 100
+  runDrainPerSecond: 20
+  walkRegenPerSecond: 15
+  standRegenPerSecond: 20
+  sprintResumeStamina: 10
+  standingSpeed: 0.2
+  movement: {fileID: 0}
+  controller: {fileID: 0}
 --- !u!1 &127929768
 GameObject:
   m_ObjectHideFlags: 0

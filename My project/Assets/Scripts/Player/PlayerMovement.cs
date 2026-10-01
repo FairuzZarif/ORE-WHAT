@@ -31,8 +31,25 @@ public class PlayerMovement : MonoBehaviour
     /// <summary>True when the controller is touching the ground this frame.</summary>
     public bool IsGrounded => controller.isGrounded;
 
-    /// <summary>True while the sprint key is held and the player is moving.</summary>
+    /// <summary>True while the sprint key is held, the player is moving forward and has stamina to sprint.</summary>
     public bool IsSprinting { get; private set; }
+
+    /// <summary>True while the sprint key is held, whether or not sprinting is possible.</summary>
+    public bool SprintHeld { get; private set; }
+
+    /// <summary>Sprinting AND actually moving (not blocked by a wall or standing still). Uses stamina.</summary>
+    public bool IsRunning
+    {
+        get
+        {
+            if (!IsSprinting) return false;
+            Vector3 v = controller.velocity;
+            return new Vector2(v.x, v.z).magnitude > walkSpeed * 0.5f;
+        }
+    }
+
+    [Tooltip("Optional. Sprinting needs stamina from this (none = unlimited sprint).")]
+    [SerializeField] private PlayerAttributes attributes;
 
     /// <summary>Raised on the frame a jump starts (e.g. for camera / viewmodel effects).</summary>
     public event System.Action Jumped;
@@ -46,6 +63,7 @@ public class PlayerMovement : MonoBehaviour
     private void Awake()
     {
         controller = GetComponent<CharacterController>();
+        if (attributes == null) attributes = GetComponent<PlayerAttributes>();
     }
 
     private void Update()
@@ -61,7 +79,8 @@ public class PlayerMovement : MonoBehaviour
         if (keyboard.aKey.isPressed) input.x -= 1f;
         input = Vector2.ClampMagnitude(input, 1f); // diagonals aren't faster
 
-        IsSprinting = keyboard.leftShiftKey.isPressed && input.y > 0f;
+        SprintHeld = keyboard.leftShiftKey.isPressed;
+        IsSprinting = SprintHeld && input.y > 0f && (attributes == null || attributes.CanSprint);
         float targetSpeed = IsSprinting ? sprintSpeed : walkSpeed;
 
         // --- Horizontal movement (relative to where the player faces) ---
