@@ -21,7 +21,13 @@ using UnityEngine.InputSystem;
 /// magazine back and pushes it in, the slide/charging handle is racked, the gun settles, and the
 /// magazine is full. The magazine is the imported rig's Magazine bone (the mesh follows it fully).
 ///
-/// Each shot casts one ray from the centre of the camera. It never hits the player or the
+/// Recoil: the gun model kicks back and up (Recoil), and the aim kicks too (Aim recoil & spray
+/// pattern), shown through CameraRotation (CameraEffects adds it to CameraRoot; PlayerLook's own aim is
+/// never changed). Automatic guns follow Spray Pattern one entry per shot fired; single-shot guns add
+/// Aim Kick per shot. The aim settles back when you stop firing; the spray restarts after Spray Reset
+/// Delay or a reload.
+///
+/// Each shot casts one ray from the camera, along the crosshair plus the recoil. It never hits the player or the
 /// first-person view. What it hits:
 ///   - an IDamageable (future enemies) takes Damage
 ///   - a rock (RockHealth) takes Rock Damage through its normal TakeHit
@@ -92,12 +98,42 @@ public class WeaponController : HeldItemController
     [SerializeField] private Vector3 recoilKick = new Vector3(0.004f, 0.01f, 0.035f);
     [Tooltip("Gun rotation per shot, degrees: X = muzzle up, Y = random left/right.")]
     [SerializeField] private Vector2 recoilRotation = new Vector2(6f, 1.5f);
-    [Tooltip("Camera kick per shot, degrees (visual only; your aim returns by itself).")]
+    [Tooltip("Extra camera jolt per shot, degrees (a short pulse on top of the aim recoil below).")]
     [SerializeField, Min(0f)] private float cameraKick = 0.6f;
     [Tooltip("How fast the gun settles back after a shot. Higher = snappier.")]
     [SerializeField, Min(1f)] private float recoilRecovery = 14f;
-    [Tooltip("Automatic fire: most shots' worth of recoil that can stack up.")]
+    [Tooltip("Automatic fire: most shots' worth of recoil that can stack up. Single shots: also caps how far repeated Aim Kicks climb.")]
     [SerializeField, Min(1f)] private float maxRecoilStack = 2.5f;
+
+    [Header("Aim recoil & spray pattern")]
+    [Tooltip("Where shot N of a spray goes, relative to where you aim, degrees (X = right, Y = up); one entry per " +
+             "shot actually fired. The view follows it, so the crosshair shows where the bullets go and pulling the " +
+             "mouse against it compensates. Past the last entry the spray stays at the last point. " +
+             "Empty = no pattern: each shot adds Aim Kick instead (pistol).")]
+    [SerializeField] private Vector2[] sprayPattern = new Vector2[0];
+    [Tooltip("Without a spray pattern: aim kick per shot, degrees. X = random left/right up to this, Y = up.")]
+    [SerializeField] private Vector2 aimKick = new Vector2(0.35f, 1.4f);
+    [Tooltip("Small random deviation per shot, degrees. In a spray it grows over the first 4 shots, so the first bullet is exact.")]
+    [SerializeField, Min(0f)] private float shotVariation = 0.1f;
+    [Tooltip("How quickly the aim settles back after you stop firing (per second; higher = faster).")]
+    [SerializeField, Min(0.1f)] private float aimRecovery = 7f;
+    [Tooltip("Seconds without firing before the next spray starts again from its first shot.")]
+    [SerializeField, Min(0f)] private float sprayResetDelay = 0.35f;
+    [Tooltip("How quickly the view follows each kick while firing (per second).")]
+    [SerializeField, Min(1f)] private float kickSpeed = 30f;
+
+    /// <summary>The assault rifle's spray (degrees): straight up first, then a drift left, back right, and left again.</summary>
+    public static readonly Vector2[] DefaultRifleSpray =
+    {
+        new Vector2(0f, 0f),       new Vector2(0f, 0.45f),     new Vector2(0.05f, 0.95f),  new Vector2(-0.05f, 1.5f),
+        new Vector2(-0.1f, 2.05f), new Vector2(-0.2f, 2.55f),  new Vector2(-0.4f, 3f),     new Vector2(-0.7f, 3.4f),
+        new Vector2(-1f, 3.75f),   new Vector2(-1.3f, 4.05f),  new Vector2(-1.5f, 4.3f),   new Vector2(-1.6f, 4.55f),
+        new Vector2(-1.5f, 4.75f), new Vector2(-1.2f, 4.95f),  new Vector2(-0.8f, 5.1f),   new Vector2(-0.3f, 5.25f),
+        new Vector2(0.2f, 5.4f),   new Vector2(0.7f, 5.5f),    new Vector2(1.1f, 5.6f),    new Vector2(1.4f, 5.7f),
+        new Vector2(1.6f, 5.8f),   new Vector2(1.6f, 5.9f),    new Vector2(1.4f, 6f),      new Vector2(1f, 6.05f),
+        new Vector2(0.6f, 6.1f),   new Vector2(0.2f, 6.15f),   new Vector2(-0.2f, 6.2f),   new Vector2(-0.6f, 6.25f),
+        new Vector2(-0.9f, 6.3f),  new Vector2(-1.1f, 6.35f),
+    };
 
     [Header("Rig parts (from the gun's imported rig)")]
     [Tooltip("Slide (pistol) or bolt (rifle): moves back on each shot.")]
@@ -168,6 +204,12 @@ public class WeaponController : HeldItemController
     public float ReloadProgress => reloading ? reloadT : 0f;
     /// <summary>Shots fired since this gun was taken out (for testing/debugging).</summary>
     public int ShotsFired { get; private set; }
+    /// <summary>Shots in the current spray (0 = the next shot starts a new spray).</summary>
+    public int SprayIndex => sprayIndex;
+    /// <summary>Where the gun's recoil currently puts the aim, degrees (X = right, Y = up).</summary>
+    public Vector2 AimRecoil => aimRecoil;
+    /// <summary>Direction of the last shot fired (for testing/debugging).</summary>
+    public Vector3 LastShotDirection { get; private set; }
     /// <summary>Switching or throwing is always allowed: it simply cancels a reload.</summary>
     public override bool IsBusy => false;
     public override Vector3 CameraRotation => cameraRot;
@@ -184,6 +226,9 @@ public class WeaponController : HeldItemController
     private bool reloading, triggerArmed;
     private float reloadT;
     private Vector3 cameraRot;
+    private Vector2 aimRecoil, shownRecoil; // degrees, X = right, Y = up: target / what the view shows
+    private int sprayIndex;
+    private float lastShotTime = -10f;
     private readonly RaycastHit[] hits = new RaycastHit[16];
 
     private void Awake()
@@ -241,6 +286,9 @@ public class WeaponController : HeldItemController
         reloadT = 0f;
         recoil = slideKick = 0f;
         cameraRot = Vector3.zero;
+        aimRecoil = shownRecoil = Vector2.zero;
+        sprayIndex = 0;
+        lastShotTime = -10f;
         if (reloadSource != null) reloadSource.Stop();
         if (muzzleLight != null) muzzleLight.enabled = false;
         ApplyPose();
@@ -277,7 +325,14 @@ public class WeaponController : HeldItemController
         float settle = 1f - Mathf.Exp(-recoilRecovery * dt);
         recoil = Mathf.Lerp(recoil, 0f, settle);
         slideKick = Mathf.MoveTowards(slideKick, 0f, dt / 0.07f);
-        cameraRot = new Vector3(-cameraKick * recoil, cameraKick * 0.3f * recoil * recoilSide, 0f);
+
+        // Aim recoil: the view follows each kick quickly while firing, then settles back to your aim.
+        bool firing = Time.time - lastShotTime < fireCooldown + 0.05f;
+        if (!firing) aimRecoil = Vector2.zero;
+        if (Time.time - lastShotTime > sprayResetDelay) sprayIndex = 0;
+        shownRecoil = Vector2.Lerp(shownRecoil, aimRecoil, 1f - Mathf.Exp(-(firing ? kickSpeed : aimRecovery) * dt));
+        // CameraEffects adds this to CameraRoot (X = pitch, negative = up; Y = yaw). PlayerLook is untouched.
+        cameraRot = new Vector3(-shownRecoil.y - cameraKick * recoil, shownRecoil.x + cameraKick * 0.3f * recoil * recoilSide, 0f);
 
         if (muzzleLight != null && muzzleLight.enabled)
         {
@@ -299,6 +354,8 @@ public class WeaponController : HeldItemController
         if (currentAmmo >= magazineCapacity && !reloadWhenFull) return;
         reloading = true;
         reloadT = 0f;
+        sprayIndex = 0;      // a new magazine starts a new spray
+        lastShotTime = -10f; // and the recoil settles during the reload
         if (reloadSource != null) reloadSource.Stop();
     }
 
@@ -332,8 +389,32 @@ public class WeaponController : HeldItemController
         currentAmmo--;
         ShotsFired++;
 
-        // Hit detection: one ray from the centre of the screen; skip anything that belongs to the player.
-        Ray ray = playerCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+        // Where this shot goes, relative to the centre of the screen (degrees, X = right, Y = up).
+        Vector2 offset;
+        Vector2 shown = new Vector2(cameraRot.y, -cameraRot.x); // what this gun's recoil already turned the view by
+        if (sprayPattern != null && sprayPattern.Length > 0)
+        {
+            // Spray: shot N lands at pattern[N] from your aim. The view already shows part of that, so only the rest is added.
+            Vector2 point = sprayPattern[Mathf.Min(sprayIndex, sprayPattern.Length - 1)];
+            point += UnityEngine.Random.insideUnitCircle * (shotVariation * Mathf.Clamp01(sprayIndex / 4f));
+            aimRecoil = point;
+            offset = point - shown;
+        }
+        else
+        {
+            // Single shots: this bullet goes where the crosshair is (plus a tiny variation); the kick comes after.
+            offset = UnityEngine.Random.insideUnitCircle * shotVariation;
+            aimRecoil = shownRecoil + new Vector2(UnityEngine.Random.Range(-aimKick.x, aimKick.x), aimKick.y);
+            aimRecoil.y = Mathf.Min(aimRecoil.y, aimKick.y * maxRecoilStack);
+        }
+        sprayIndex++;
+        lastShotTime = Time.time;
+
+        // Hit detection: one ray from the camera; skip anything that belongs to the player.
+        Transform eye = playerCamera.transform;
+        Vector3 direction = Quaternion.AngleAxis(offset.x, eye.up) * Quaternion.AngleAxis(-offset.y, eye.right) * eye.forward;
+        Ray ray = new Ray(eye.position, direction);
+        LastShotDirection = direction;
         int count = Physics.RaycastNonAlloc(ray, hits, range, hitLayers, QueryTriggerInteraction.Ignore);
         int best = -1;
         for (int i = 0; i < count; i++)
