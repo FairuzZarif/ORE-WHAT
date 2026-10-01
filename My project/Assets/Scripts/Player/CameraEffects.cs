@@ -101,6 +101,8 @@ public class CameraEffects : MonoBehaviour
     [Tooltip("Used only when there's no PlayerEquipment; otherwise the held item's controller drives the swing reaction.")]
     [SerializeField] private PickaxeSwing pickaxeSwing;
     [SerializeField] private PlayerEquipment equipment;
+    [Tooltip("Lowers the camera while crouched.")]
+    [SerializeField] private PlayerCrouch crouch;
 
     private HeldItemController heldItem; // the equipped item's behaviour (pickaxe, hammer...)
 
@@ -136,6 +138,7 @@ public class CameraEffects : MonoBehaviour
         if (motionState == null) motionState = GetComponentInParent<PlayerMotionState>();
         if (pickaxeSwing == null) pickaxeSwing = GetComponentInChildren<PickaxeSwing>();
         if (equipment == null) equipment = GetComponentInParent<PlayerEquipment>();
+        if (crouch == null) crouch = GetComponentInParent<PlayerCrouch>();
         noiseSeed = Random.value * 100f;
     }
 
@@ -330,7 +333,9 @@ public class CameraEffects : MonoBehaviour
         }
 
         // --- Apply once ----------------------------------------------------------------------
-        transform.localPosition = basePosition + finalPos * globalIntensity;
+        // Crouch height is not an effect, so Global Intensity doesn't scale it.
+        Vector3 crouchOffset = crouch != null && crouch.isActiveAndEnabled ? crouch.CameraOffset : Vector3.zero;
+        transform.localPosition = basePosition + finalPos * globalIntensity + crouchOffset;
         transform.localRotation = baseRotation * Quaternion.Euler(finalRot * globalIntensity);
     }
 }

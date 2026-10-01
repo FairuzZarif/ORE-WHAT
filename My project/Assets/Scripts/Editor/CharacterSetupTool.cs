@@ -72,6 +72,7 @@ public static class CharacterSetupTool
         model.AddComponent<CharacterAnimator>();
         Undo.RegisterCreatedObjectUndo(model, "Add Character Body");
         FirstPersonCharacterArmsTool.Apply(player); // its arms are the first-person arms
+        CrouchSetupTool.Add(player);                // crouch pose on the new body
 
         EditorSceneManager.MarkSceneDirty(player.scene);
         EditorSceneManager.SaveScene(player.scene);

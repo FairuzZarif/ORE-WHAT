@@ -51,6 +51,9 @@ public class PlayerMovement : MonoBehaviour
     [Tooltip("Optional. Sprinting needs stamina from this (none = unlimited sprint).")]
     [SerializeField] private PlayerAttributes attributes;
 
+    [Tooltip("Optional. While crouched: crouch speed, no sprinting.")]
+    [SerializeField] private PlayerCrouch crouch;
+
     /// <summary>Raised on the frame a jump starts (e.g. for camera / viewmodel effects).</summary>
     public event System.Action Jumped;
 
@@ -64,6 +67,7 @@ public class PlayerMovement : MonoBehaviour
     {
         controller = GetComponent<CharacterController>();
         if (attributes == null) attributes = GetComponent<PlayerAttributes>();
+        if (crouch == null) crouch = GetComponent<PlayerCrouch>();
     }
 
     private void Update()
@@ -80,8 +84,9 @@ public class PlayerMovement : MonoBehaviour
         input = Vector2.ClampMagnitude(input, 1f); // diagonals aren't faster
 
         SprintHeld = keyboard.leftShiftKey.isPressed;
-        IsSprinting = SprintHeld && input.y > 0f && (attributes == null || attributes.CanSprint);
-        float targetSpeed = IsSprinting ? sprintSpeed : walkSpeed;
+        bool crouching = crouch != null && crouch.isActiveAndEnabled && crouch.IsCrouching;
+        IsSprinting = SprintHeld && input.y > 0f && !crouching && (attributes == null || attributes.CanSprint);
+        float targetSpeed = crouching ? crouch.CrouchSpeed : IsSprinting ? sprintSpeed : walkSpeed;
 
         // --- Horizontal movement (relative to where the player faces) ---
         Vector3 targetVelocity = (transform.right * input.x + transform.forward * input.y) * targetSpeed;
