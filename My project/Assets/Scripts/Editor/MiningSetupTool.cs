@@ -76,6 +76,8 @@ public static class MiningSetupTool
         PickupHighlightSetupTool.AddAll(player); // outlines on Tool/Weapon pickups + the Player's PickupHighlighter
         PlayerStatsSetupTool.Add(player);           // health + stamina and their HUD bars
         CrouchSetupTool.Add(player);                // C to crouch, plus the body's crouch pose
+        HeadlampSetupTool.Add(player);              // L toggles the hardhat's headlamp
+        FistsSetupTool.Add(player);                 // fists for empty hotbar slots (copy of ItemHoldViewModel)
         FirstPersonCharacterArmsTool.Apply(player); // the views above get the character's own arms (if it has a CharacterVisual)
 
         AssetDatabase.SaveAssets(); // persist material tweaks (metallic/smoothness)

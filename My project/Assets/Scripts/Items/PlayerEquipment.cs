@@ -8,7 +8,7 @@ using UnityEngine.InputSystem;
 /// The inventory's SELECTED SLOT (PlayerInventory.SelectedSlot) is the one source of truth: this
 /// component holds no item of its own, it only shows whatever that slot holds.
 ///
-///   1-7 (one per slot)  select that hotbar slot (an empty slot = empty hands)
+///   1-7 (one per slot)  select that hotbar slot (an empty slot = empty hands; UnarmedAttack can punch from there)
 ///   Mouse wheel         cycle through the occupied slots
 ///   G                   throw what's in the hands: the selected item (one of a stack), or the
 ///                       ore you're carrying. It leaves the hands where it is on screen.
@@ -49,6 +49,9 @@ public class PlayerEquipment : MonoBehaviour
     [SerializeField] private HeldView[] views = new HeldView[0];
     [Tooltip("Shared view for every other item (ores...) and for carried world ores.")]
     [SerializeField] private HeldResourceView itemView;
+    [Tooltip("Optional. Shown ONLY while an unarmed punch plays (UnarmedAttack calls ShowUnarmedAction). " +
+             "An empty slot itself shows nothing: relaxed arms.")]
+    [SerializeField] private GameObject fistsView;
 
     [Header("Throw")]
     [SerializeField] private Key throwKey = Key.G;
@@ -80,7 +83,7 @@ public class PlayerEquipment : MonoBehaviour
     public bool IsCarrying => carrier != null && carrier.IsCarrying;
     /// <summary>True while holding something that can mine (not while carrying an ore).</summary>
     public bool CanMine => !IsCarrying && Equipped != null && Equipped.CanMine;
-    /// <summary>The shown view's behaviour, e.g. a MiningToolController. Null for held ores and empty hands.</summary>
+    /// <summary>The shown view's behaviour, e.g. a MiningToolController (the FistsController only during an unarmed punch). Null for held ores and empty hands.</summary>
     public HeldItemController ActiveController { get; private set; }
     /// <summary>"Holding: Pickaxe   [G] Throw", "Carrying: Copper Ore", "Hands empty"...</summary>
     public string StatusText
@@ -100,7 +103,7 @@ public class PlayerEquipment : MonoBehaviour
     private CharacterController controller;
     private GameObject shownView;
     private ItemData shownItem;
-    private bool shownCarrying, shownOnce;
+    private bool shownCarrying, shownOnce, unarmedActionShown;
 
     private void Awake()
     {
@@ -147,6 +150,20 @@ public class PlayerEquipment : MonoBehaviour
         }
     }
 
+    /// <summary>The view shown while punching with empty hands (or null).</summary>
+    public GameObject UnarmedView => fistsView;
+    /// <summary>True while the unarmed punch view is up.</summary>
+    public bool UnarmedActionShown => unarmedActionShown;
+
+    /// <summary>Shows / hides the unarmed punch view. Ignored while holding an item or carrying an ore.</summary>
+    public void ShowUnarmedAction(bool show)
+    {
+        if (show && (Equipped != null || IsCarrying)) show = false;
+        if (show == unarmedActionShown) return;
+        unarmedActionShown = show;
+        Refresh();
+    }
+
     /// <summary>Selects an inventory slot (kept for callers from before the hotbar; same as PlayerInventory.SelectSlot).</summary>
     public void EquipSlot(int slotIndex) => inventory.SelectSlot(slotIndex);
 
@@ -165,10 +182,12 @@ public class PlayerEquipment : MonoBehaviour
     {
         bool carrying = IsCarrying;
         ItemData item = carrying ? null : Equipped;
+        if (carrying || item != null) unarmedActionShown = false; // holding something cancels a punch
         HeldView toolView = Find(item);
         GameObject view = carrying ? ItemViewObject
                         : toolView != null && toolView.view != null ? toolView.view
-                        : item != null ? ItemViewObject : null;
+                        : item != null ? ItemViewObject
+                        : unarmedActionShown ? fistsView : null; // empty slot = nothing, except during a punch
 
         if (shownOnce && view == shownView && item == shownItem && carrying == shownCarrying)
         {
@@ -180,6 +199,7 @@ public class PlayerEquipment : MonoBehaviour
         foreach (HeldView v in views)
             if (v.view != null && v.view != view) v.view.SetActive(false);
         if (ItemViewObject != null && ItemViewObject != view) ItemViewObject.SetActive(false);
+        if (fistsView != null && fistsView != view) fistsView.SetActive(false);
         if (view != null) view.SetActive(true);
 
         if (view != null && view == ItemViewObject)
