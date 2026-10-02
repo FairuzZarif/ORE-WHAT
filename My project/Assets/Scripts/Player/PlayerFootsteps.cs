@@ -1,124 +1,238 @@
 using UnityEngine;
 
 /// <summary>
-/// Plays grounded player footsteps, choosing grass, rock, or enclosed-cave sounds from the
-/// ground collider and the cave space overhead.
+/// Plays one ground-surface recording on each shared gait footfall. Enclosed caves use
+/// the same stone recording with a separate, smoothly faded echo and reverb path.
 /// </summary>
-[DefaultExecutionOrder(100)] // read CharacterController.velocity after PlayerMovement has called Move
-[RequireComponent(typeof(CharacterController))]
+[DefaultExecutionOrder(100)] // PlayerGait has updated after PlayerMovement.
+[RequireComponent(typeof(CharacterController), typeof(PlayerGait))]
 public class PlayerFootsteps : MonoBehaviour
 {
     [Header("Footstep clips")]
-    [Tooltip("Outside clips ordered left then right; they alternate on every exterior step.")]
-    [SerializeField] private AudioClip[] outdoorClips = System.Array.Empty<AudioClip>();
-    [Tooltip("Random stone-step variations. The same clip is not repeated on consecutive stone steps.")]
+    [SerializeField] private AudioClip[] grassClips = System.Array.Empty<AudioClip>();
+    [Tooltip("Linear gains matching Grass Clips. Missing entries use 1.")]
+    [SerializeField] private float[] grassClipGains = System.Array.Empty<float>();
+    [Tooltip("Stone recordings. A two-clip set alternates left and right; larger sets play from a shuffle bag.")]
     [SerializeField] private AudioClip[] rockClips = System.Array.Empty<AudioClip>();
-    [SerializeField] private AudioClip[] caveClips = System.Array.Empty<AudioClip>();
+    [Tooltip("Linear gains matching Rock Clips. Missing entries use 1.")]
+    [SerializeField] private float[] rockClipGains = System.Array.Empty<float>();
 
-    [Header("Timing")]
-    [Tooltip("Ground distance travelled between walking or crouching footsteps, in metres.")]
-    [SerializeField, Min(0.2f)] private float walkStepDistance = 1.2f;
-    [Tooltip("Ground distance travelled between sprinting footsteps, in metres.")]
-    [SerializeField, Min(0.2f)] private float sprintStepDistance = 1.65f;
-    [Tooltip("Movement below this horizontal speed is treated as standing still.")]
-    [SerializeField, Min(0f)] private float movementThreshold = 0.2f;
+    [Header("Level and variation")]
+    [Tooltip("Master gain for the entire footstep system, before clip leveling and cave effects.")]
+    [SerializeField, Range(0f, 1f)] private float volume = 0.15f;
+    [SerializeField, Range(0f, 0.03f)] private float pitchVariation = 0.03f;
+    [SerializeField, Range(0f, 1f)] private float levelVariationDb = 1f;
 
-    [Header("Volume")]
-    [SerializeField, Range(0f, 1f)] private float volume = 0.3f;
-    [SerializeField, Range(0f, 2f)] private float grassVolumeMultiplier = 1f;
-    [SerializeField, Range(0f, 2f)] private float rockVolumeMultiplier = 1f;
-    [Tooltip("Reduce this if the cave recordings overpower the outdoor sounds.")]
-    [SerializeField, Range(0f, 2f)] private float caveVolumeMultiplier = 0.55f;
-    [Tooltip("Per-clip cave volume adjustment, in the same order as Cave Clips. Missing entries use 1.")]
-    [SerializeField] private float[] caveClipVolumeMultipliers = { 1f, 1f, 1f };
-
-    [Header("Playback speed")]
-    [Tooltip("AudioSource pitch also controls playback speed. 1 is the recorded speed.")]
-    [SerializeField, Range(0.5f, 1.5f)] private float grassPlaybackSpeed = 1f;
-    [SerializeField, Range(0.5f, 1.5f)] private float rockPlaybackSpeed = 1f;
-    [SerializeField, Range(0.5f, 1.5f)] private float cavePlaybackSpeed = 1f;
-    [Tooltip("Per-clip cave speed adjustment, in the same order as Cave Clips. Missing entries use 1.")]
-    [SerializeField] private float[] caveClipSpeedMultipliers = { 1f, 1f, 1f };
-
-    [Header("Surface detection and transition")]
-    [Tooltip("How far below the player to probe for the surface collider.")]
-    [SerializeField, Min(0.1f)] private float groundProbeDistance = 0.75f;
-    [Tooltip("Distance above the feet where the ground probe begins.")]
-    [SerializeField, Min(0f)] private float groundProbeHeight = 0.25f;
-    [Tooltip("Maximum upward search for the cave's generated rock ceiling.")]
-    [SerializeField, Min(1f)] private float caveCeilingCheckDistance = 25f;
-    [Tooltip("Fade time between the exterior surface sound and cave sound, in seconds.")]
+    [Header("Cave reflections")]
+    [SerializeField, Range(0f, 1f)] private float caveEchoGain = 0.2f;
+    [SerializeField, Range(10f, 5000f)] private float caveEchoDelayMs = 100f;
+    [SerializeField, Range(0f, 1f)] private float caveEchoDecay = 0.2f;
     [SerializeField, Min(0.05f)] private float caveTransitionTime = 0.8f;
+    [SerializeField, Min(1f)] private float caveCeilingCheckDistance = 25f;
+
+    [Header("Ground probe")]
+    [SerializeField, Min(0.1f)] private float groundProbeDistance = 0.75f;
+    [SerializeField, Min(0f)] private float groundProbeHeight = 0.25f;
+
+    private const int VoiceCount = 12; // >4 seconds between reuse at the fastest planned gait
+    private const float MinimumFloorNormalY = 0.55f;
+
+    private sealed class StepVoice
+    {
+        public AudioSource Dry;
+        public AudioSource Wet;
+        public AudioEchoFilter Echo;
+        public float Gain;
+    }
 
     private CharacterController controller;
-    private PlayerMovement movement;
+    private PlayerGait gait;
     private CaveLayout caveLayout;
-    private AudioSource grassSource;
-    private AudioSource rockSource;
-    private AudioSource[] caveSources;
+    private StepVoice[] voices;
     private readonly RaycastHit[] ceilingHits = new RaycastHit[8];
-    private float distanceSinceStep;
+    private readonly RaycastHit[] groundHits = new RaycastHit[16];
+    private int[] grassBag = System.Array.Empty<int>();
+    private int bagPosition;
+    private int lastGrassIndex = -1;
+    private int[] rockBag = System.Array.Empty<int>();
+    private int rockBagPosition;
+    private int lastRockIndex = -1;
+    private int nextVoice;
     private float caveBlend;
-    private int nextPairedClipIndex;
-    private int lastCaveClipIndex = -1;
-    private int lastRockClipIndex = -1;
 
     private void Awake()
     {
         controller = GetComponent<CharacterController>();
-        movement = GetComponent<PlayerMovement>();
+        gait = GetComponent<PlayerGait>();
         caveLayout = FindAnyObjectByType<CaveLayout>();
 
-        grassSource = CreateSource("Grass Footsteps", grassPlaybackSpeed);
-        rockSource = CreateSource("Rock Footsteps", rockPlaybackSpeed);
-        caveSources = new AudioSource[caveClips != null ? caveClips.Length : 0];
-        for (int i = 0; i < caveSources.Length; i++)
-        {
-            float speed = cavePlaybackSpeed * GetMultiplier(caveClipSpeedMultipliers, i);
-            caveSources[i] = CreateSource("Cave Footsteps " + (i + 1), speed);
-        }
-
-        int pairedClipCount = Mathf.Max(outdoorClips != null ? outdoorClips.Length : 0,
-                                        rockClips != null ? rockClips.Length : 0);
-        nextPairedClipIndex = pairedClipCount > 1 ? Random.Range(0, 2) : 0;
+        BuildGrassBag();
+        BuildRockBag();
+        voices = new StepVoice[VoiceCount];
+        for (int i = 0; i < voices.Length; i++)
+            voices[i] = CreateVoice(i);
     }
 
-    private AudioSource CreateSource(string sourceName, float playbackSpeed)
+    private void Update()
+    {
+        bool insideCave = IsInsideEnclosedCave();
+        caveBlend = Mathf.MoveTowards(caveBlend, insideCave ? 1f : 0f,
+            Time.deltaTime / Mathf.Max(0.05f, caveTransitionTime));
+
+        // Changing source volume also fades echoes that started on earlier footsteps.
+        foreach (StepVoice voice in voices)
+            voice.Wet.volume = voice.Gain * caveEchoGain * caveBlend;
+
+        if (!gait.FootfallThisFrame) return;
+        PlayStep(insideCave || IsStandingOnRock());
+    }
+
+    private StepVoice CreateVoice(int index)
+    {
+        AudioSource dry = CreateSource("Footstep Dry " + index);
+        AudioSource wet = CreateSource("Footstep Cave Echo " + index);
+
+        var echo = wet.gameObject.AddComponent<AudioEchoFilter>();
+        echo.delay = caveEchoDelayMs;
+        echo.decayRatio = caveEchoDecay;
+        echo.dryMix = 0f; // dry impact comes only from the other source
+        echo.wetMix = 1f;
+
+        var reverb = wet.gameObject.AddComponent<AudioReverbFilter>();
+        reverb.reverbPreset = AudioReverbPreset.Cave;
+
+        return new StepVoice { Dry = dry, Wet = wet, Echo = echo };
+    }
+
+    private AudioSource CreateSource(string sourceName)
     {
         var host = new GameObject(sourceName);
         host.transform.SetParent(transform, false);
         var source = host.AddComponent<AudioSource>();
         source.playOnAwake = false;
         source.loop = false;
-        source.spatialBlend = 0f; // footsteps belong to the local player's listening perspective
+        source.spatialBlend = 0f; // the local player's listening perspective
         source.dopplerLevel = 0f;
-        source.pitch = Mathf.Max(0.1f, playbackSpeed);
+        source.bypassReverbZones = true;
         return source;
     }
 
-    private void Update()
+    private void BuildGrassBag()
     {
-        bool insideCave = IsInsideEnclosedCave();
-        float targetBlend = insideCave ? 1f : 0f;
-        caveBlend = Mathf.MoveTowards(caveBlend, targetBlend,
-            Time.deltaTime / Mathf.Max(0.05f, caveTransitionTime));
+        int count = 0;
+        if (grassClips != null)
+            foreach (AudioClip clip in grassClips)
+                if (clip != null) count++;
 
-        Vector3 velocity = controller.velocity;
-        float horizontalSpeed = new Vector2(velocity.x, velocity.z).magnitude;
-        if (!controller.isGrounded || horizontalSpeed < movementThreshold)
+        grassBag = new int[count];
+        int write = 0;
+        if (grassClips != null)
+            for (int i = 0; i < grassClips.Length; i++)
+                if (grassClips[i] != null) grassBag[write++] = i;
+        bagPosition = grassBag.Length;
+    }
+
+    private int PickGrassIndex()
+    {
+        if (grassBag.Length == 0) return -1;
+        if (bagPosition >= grassBag.Length) ShuffleGrassBag();
+        int index = grassBag[bagPosition++];
+        lastGrassIndex = index;
+        return index;
+    }
+
+    private void ShuffleGrassBag()
+    {
+        for (int i = grassBag.Length - 1; i > 0; i--)
         {
-            distanceSinceStep = 0f;
-            return;
+            int j = Random.Range(0, i + 1);
+            (grassBag[i], grassBag[j]) = (grassBag[j], grassBag[i]);
         }
 
-        float stepLength = movement != null && movement.IsSprinting ? sprintStepDistance : walkStepDistance;
-        distanceSinceStep += horizontalSpeed * Time.deltaTime;
-        if (distanceSinceStep < stepLength) return;
-        distanceSinceStep %= stepLength;
-
-        bool onRock = IsStandingOnRock();
-        PlayStep(onRock);
+        if (grassBag.Length > 1 && grassBag[0] == lastGrassIndex)
+        {
+            int swap = Random.Range(1, grassBag.Length);
+            (grassBag[0], grassBag[swap]) = (grassBag[swap], grassBag[0]);
+        }
+        bagPosition = 0;
     }
+
+    private int PickRockIndex()
+    {
+        if (rockBag.Length == 0) return -1;
+
+        // The original left/right recordings are a deliberate pair. Larger
+        // banks need every recording to be heard without repeating a clip.
+        if (rockClips.Length == 2 && rockBag.Length == 2)
+            return gait.LastFootWasLeft ? 0 : 1;
+
+        if (rockBagPosition >= rockBag.Length) ShuffleRockBag();
+        int index = rockBag[rockBagPosition++];
+        lastRockIndex = index;
+        return index;
+    }
+
+    private void BuildRockBag()
+    {
+        int count = 0;
+        if (rockClips != null)
+            foreach (AudioClip clip in rockClips)
+                if (clip != null) count++;
+
+        rockBag = new int[count];
+        int write = 0;
+        if (rockClips != null)
+            for (int i = 0; i < rockClips.Length; i++)
+                if (rockClips[i] != null) rockBag[write++] = i;
+        rockBagPosition = rockBag.Length;
+    }
+
+    private void ShuffleRockBag()
+    {
+        for (int i = rockBag.Length - 1; i > 0; i--)
+        {
+            int j = Random.Range(0, i + 1);
+            (rockBag[i], rockBag[j]) = (rockBag[j], rockBag[i]);
+        }
+
+        if (rockBag.Length > 1 && rockBag[0] == lastRockIndex)
+        {
+            int swap = Random.Range(1, rockBag.Length);
+            (rockBag[0], rockBag[swap]) = (rockBag[swap], rockBag[0]);
+        }
+        rockBagPosition = 0;
+    }
+
+    private void PlayStep(bool onRock)
+    {
+        int index = onRock ? PickRockIndex() : PickGrassIndex();
+        if (index < 0) return;
+
+        AudioClip clip = onRock ? rockClips[index] : grassClips[index];
+        float clipGain = GetClipGain(onRock ? rockClipGains : grassClipGains, index);
+        float gainJitter = Mathf.Pow(10f, Random.Range(-levelVariationDb, levelVariationDb) / 20f);
+        float gain = volume * clipGain * gainJitter;
+        float pitch = Random.Range(1f - pitchVariation, 1f + pitchVariation);
+
+        StepVoice voice = voices[nextVoice];
+        nextVoice = (nextVoice + 1) % voices.Length;
+        voice.Dry.Stop();
+        voice.Wet.Stop();
+        voice.Gain = gain;
+        voice.Dry.pitch = pitch;
+        voice.Wet.pitch = pitch;
+        voice.Echo.delay = caveEchoDelayMs * Random.Range(0.92f, 1.08f);
+        voice.Dry.volume = gain;
+        voice.Wet.volume = gain * caveEchoGain * caveBlend;
+        voice.Dry.PlayOneShot(clip);
+
+        // No grass echo on the way out of a cave; existing stone echo tails still fade.
+        if (onRock && caveBlend > 0.001f)
+            voice.Wet.PlayOneShot(clip);
+    }
+
+    private static float GetClipGain(float[] gains, int index)
+        => gains != null && index < gains.Length ? Mathf.Max(0f, gains[index]) : 1f;
 
     private bool IsInsideEnclosedCave()
     {
@@ -128,8 +242,7 @@ public class PlayerFootsteps : MonoBehaviour
         if (!caveLayout.Sample(samplePoint, out float distance, out _, out _) || distance >= -0.1f)
             return false;
 
-        // The CaveLayout also covers nearby exterior rock. Require the generated cave roof overhead
-        // so standing on an outside ledge or platform cannot activate cave footsteps.
+        // CaveLayout also covers exterior rock and open ledges. Require the generated roof.
         int worldMask = ~(1 << gameObject.layer);
         int hitCount = Physics.RaycastNonAlloc(samplePoint, Vector3.up, ceilingHits,
             caveCeilingCheckDistance, worldMask, QueryTriggerInteraction.Ignore);
@@ -144,69 +257,26 @@ public class PlayerFootsteps : MonoBehaviour
     {
         Vector3 origin = transform.position + Vector3.up * groundProbeHeight;
         int worldMask = ~(1 << gameObject.layer);
-        if (!Physics.Raycast(origin, Vector3.down, out RaycastHit hit, groundProbeDistance,
-                             worldMask, QueryTriggerInteraction.Ignore))
-            return false;
+        int hitCount = Physics.RaycastNonAlloc(origin, Vector3.down, groundHits,
+            groundProbeDistance, worldMask, QueryTriggerInteraction.Ignore);
 
-        // The island ground is a TerrainCollider. The generated stone ledges and cave mesh use
-        // MeshColliders, so they get the rock set while ordinary terrain keeps the grass set.
-        return !(hit.collider is TerrainCollider);
-    }
-
-    private void PlayStep(bool onRock)
-    {
-        float exteriorBlend = Mathf.Cos(caveBlend * Mathf.PI * 0.5f);
-        float caveWeight = Mathf.Sin(caveBlend * Mathf.PI * 0.5f);
-
-        AudioClip[] exteriorClips = onRock ? rockClips : outdoorClips;
-        AudioSource exteriorSource = onRock ? rockSource : grassSource;
-        float exteriorVolume = onRock ? rockVolumeMultiplier : grassVolumeMultiplier;
-        AudioClip exteriorClip = onRock ? PickRockClip() : PickPairedClip(exteriorClips);
-        if (exteriorClip != null && exteriorBlend > 0.001f)
-            exteriorSource.PlayOneShot(exteriorClip, volume * exteriorVolume * exteriorBlend);
-
-        if (caveWeight > 0.001f)
+        Collider floor = null;
+        float nearest = float.MaxValue;
+        for (int i = 0; i < hitCount; i++)
         {
-            int caveIndex = PickCaveClipIndex();
-            if (caveIndex >= 0)
-            {
-                float clipVolume = GetMultiplier(caveClipVolumeMultipliers, caveIndex);
-                caveSources[caveIndex].PlayOneShot(caveClips[caveIndex],
-                    volume * caveVolumeMultiplier * clipVolume * caveWeight);
-            }
+            RaycastHit hit = groundHits[i];
+            if (hit.collider == null || hit.normal.y < MinimumFloorNormalY ||
+                hit.collider.transform.IsChildOf(transform) ||
+                (hit.rigidbody != null && !hit.rigidbody.isKinematic) ||
+                hit.distance >= nearest)
+                continue;
+
+            floor = hit.collider;
+            nearest = hit.distance;
         }
+
+        // The island ground uses TerrainColliders; generated stone and other solid
+        // walkable surfaces use colliders. Moving pickups never choose a surface.
+        return floor != null && !(floor is TerrainCollider);
     }
-
-    private AudioClip PickPairedClip(AudioClip[] clips)
-    {
-        if (clips == null || clips.Length == 0) return null;
-        int index = nextPairedClipIndex % clips.Length;
-        nextPairedClipIndex = clips.Length > 1 ? 1 - nextPairedClipIndex : 0;
-        return clips[index];
-    }
-
-    private AudioClip PickRockClip()
-    {
-        if (rockClips == null || rockClips.Length == 0) return null;
-
-        int index = Random.Range(0, rockClips.Length);
-        if (rockClips.Length > 1 && index == lastRockClipIndex)
-            index = (index + Random.Range(1, rockClips.Length)) % rockClips.Length;
-        lastRockClipIndex = index;
-        return rockClips[index];
-    }
-
-    private int PickCaveClipIndex()
-    {
-        if (caveClips == null || caveClips.Length == 0) return -1;
-
-        int index = Random.Range(0, caveClips.Length);
-        if (caveClips.Length > 1 && index == lastCaveClipIndex)
-            index = (index + Random.Range(1, caveClips.Length)) % caveClips.Length;
-        lastCaveClipIndex = index;
-        return index;
-    }
-
-    private static float GetMultiplier(float[] multipliers, int index)
-        => multipliers != null && index < multipliers.Length ? Mathf.Max(0f, multipliers[index]) : 1f;
 }

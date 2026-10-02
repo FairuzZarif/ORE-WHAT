@@ -2923,6 +2923,7 @@ GameObject:
   - component: {fileID: 96825211}
   - component: {fileID: 96825214}
   - component: {fileID: 96825215}
+  - component: {fileID: 96825216}
   m_Layer: 8
   m_Name: Player
   m_TagString: Player
@@ -3495,44 +3496,81 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8a3c3b48e1c54c668c96b353590a8cc9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerFootsteps
-  outdoorClips:
-  - {fileID: 8300000, guid: a0b906fb2a474feda2bba8c1233c26f6, type: 3}
-  - {fileID: 8300000, guid: 7e9597ecc04f4059b0ee6551f48dc8fb, type: 3}
+  grassClips:
+  - {fileID: 8300000, guid: 1a1c20f8f4664c53934c2ea9b7abb769, type: 3}
+  - {fileID: 8300000, guid: 408ed202b1a04583807e4059f1182eec, type: 3}
+  - {fileID: 8300000, guid: 87cefe3e95c444c196a2daece4808401, type: 3}
+  - {fileID: 8300000, guid: 94958c4ca61a48e1833137bd09d73f55, type: 3}
+  - {fileID: 8300000, guid: ebabea3b9ad440849a288745f06fd1bc, type: 3}
+  - {fileID: 8300000, guid: 07f68716733f40668f1705109faa5bcb, type: 3}
+  - {fileID: 8300000, guid: 811b71fa305d436291f84ab756ef35fc, type: 3}
+  - {fileID: 8300000, guid: eee33af7d3df42ecb79a1e558d18827c, type: 3}
+  - {fileID: 8300000, guid: a1cb40a442b044cbb914559bc103d8ac, type: 3}
+  - {fileID: 8300000, guid: 86aadedba4c74676970ab634ddb741de, type: 3}
+  grassClipGains:
+  - 2.512
+  - 3.273
+  - 1.567
+  - 1.679
+  - 1.972
+  - 1.82
+  - 1.905
+  - 2.138
+  - 1.059
+  - 1.718
   rockClips:
-  - {fileID: 8300000, guid: acab3b1808444935897750fbbb5a91ad, type: 3}
-  - {fileID: 8300000, guid: 35bb3306c98c4dabaf7d1a19c477c981, type: 3}
-  - {fileID: 8300000, guid: 2710ffbe6893470dbd6bee19f4eaab13, type: 3}
-  - {fileID: 8300000, guid: f9a56aa58f3043bca8c3492224ea8870, type: 3}
-  - {fileID: 8300000, guid: 77a1bf9a13ce44cfb107af55c362886a, type: 3}
-  - {fileID: 8300000, guid: 19da777965ef4bf883957cb511ea070f, type: 3}
-  - {fileID: 8300000, guid: 5351308aed104abc8b4dee4dd87b4bfc, type: 3}
-  - {fileID: 8300000, guid: e6b99f6e6ffc4674861f61e3b27ddac5, type: 3}
-  caveClips:
-  - {fileID: 8300000, guid: 9425bb2251bc45309b90d40b797e7674, type: 3}
-  - {fileID: 8300000, guid: 5192ff2dbe2d4d808044f8d66735507f, type: 3}
-  - {fileID: 8300000, guid: 7a9dd355cc5046a48f753254d1bc03b3, type: 3}
-  walkStepDistance: 1.2
-  sprintStepDistance: 1.65
-  movementThreshold: 0.2
-  volume: 0.6
-  grassVolumeMultiplier: 1
-  rockVolumeMultiplier: 1
-  caveVolumeMultiplier: 0.55
-  caveClipVolumeMultipliers:
-  - 0.85
-  - 0.75
-  - 0.65
-  grassPlaybackSpeed: 1
-  rockPlaybackSpeed: 1
-  cavePlaybackSpeed: 1
-  caveClipSpeedMultipliers:
+  - {fileID: 8300000, guid: 6db669d866fc435caf0eacc0f2a421df, type: 3}
+  - {fileID: 8300000, guid: def8d9d0378b40649d3cd09764a88015, type: 3}
+  - {fileID: 8300000, guid: 684d8a5bc8bb4c019e42dce6db3e2b80, type: 3}
+  - {fileID: 8300000, guid: 7390e9383217438f9b3f654eb3e1de88, type: 3}
+  - {fileID: 8300000, guid: 86cf7037b83c4d24915c03eed777a1c8, type: 3}
+  - {fileID: 8300000, guid: 3f9d70018e0443ebae92232bdf40c072, type: 3}
+  - {fileID: 8300000, guid: c0d92cec1dc94c1b8a58911b6f215335, type: 3}
+  - {fileID: 8300000, guid: c450c1d6aa0f46cc882f165c7a16aead, type: 3}
+  - {fileID: 8300000, guid: d8d3434286c64829ae04d73d02d59f58, type: 3}
+  - {fileID: 8300000, guid: a63b6c62080a4c1ba5193789e6d5b5fe, type: 3}
+  - {fileID: 8300000, guid: 271263324695442dad927bf3d77b0222, type: 3}
+  rockClipGains:
   - 1
   - 1
   - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  volume: 0.15
+  pitchVariation: 0.03
+  levelVariationDb: 1
+  caveEchoGain: 0.2
+  caveEchoDelayMs: 100
+  caveEchoDecay: 0.2
+  caveTransitionTime: 0.8
+  caveCeilingCheckDistance: 25
   groundProbeDistance: 0.75
   groundProbeHeight: 0.25
-  caveCeilingCheckDistance: 25
-  caveTransitionTime: 0.8
+--- !u!114 &96825216
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 96825190}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6833f8578ac24bdb9ae887f9d52469af, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerGait
+  walkCadence: 2.1
+  sprintCadence: 2.8
+  crouchCadence: 1.5
+  movementThreshold: 0.2
+  stepDistanceVariation: 0.03
+  stanceBlendTime: 0.25
+  phaseResetDelay: 0.35
 --- !u!1 &121639643
 GameObject:
   m_ObjectHideFlags: 0
@@ -23687,11 +23725,9 @@ MonoBehaviour:
   globalIntensity: 1
   positionSmoothness: 0.06
   rotationSmoothness: 0.08
-  walkBobFrequency: 1.8
   walkBobVerticalAmplitude: 0.025
   walkBobHorizontalAmplitude: 0.015
   walkRotationAmount: 0.6
-  runBobFrequency: 2.5
   runBobVerticalAmplitude: 0.045
   runBobHorizontalAmplitude: 0.025
   runRotationAmount: 1.2
@@ -23719,6 +23755,7 @@ MonoBehaviour:
   shakeDecay: 3
   playerMovement: {fileID: 0}
   characterController: {fileID: 0}
+  gait: {fileID: 96825216}
   motionState: {fileID: 0}
   pickaxeSwing: {fileID: 0}
   equipment: {fileID: 0}
