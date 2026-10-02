@@ -29,6 +29,7 @@ public static class IslandMapBuilder
     private const string GrassTexture = "Assets/Polytope Studio/Lowpoly_Environments/Sources/Textures/PT_Ground_Grass_Green_01.png";
     private const string DirtLayer = "Assets/Polytope Studio/Lowpoly_Demos/Environment_Free/Helpers/Ground_Layer_01.terrainlayer";
     private const string OreRockPrefab = "Assets/Polytope Studio/Lowpoly_Environments/Prefabs/Rocks/PT_Ore_Rock_01.prefab";
+    private const string RockFolder = "Assets/Polytope Studio/Lowpoly_Environments/Prefabs/Rocks/";
     private const float ChunkSize = 64f;
     private const float MaxFogDensity = 0.004f; // was 0.007: the mountain (250-300 m away) vanished in the fog
 
@@ -137,7 +138,54 @@ public static class IslandMapBuilder
         Room(go.transform, "DeepCavern", new Vector3(400f, f0 - 36f, 795f), new Vector3(30f, 20f, 26f), 0f, 0.8f);
         Tunnel(go.transform, "BossGate", new Vector3(400f, f0 - 36f, 770f), new Vector3(405f, f0 - 38f, 752f), 9f, 12f, 0.85f, 0.92f);
         Room(go.transform, "BossArena", new Vector3(410f, f0 - 38f, 720f), new Vector3(34f, 24f, 30f), 0f, 1f);
+        ApplyFloorShapes(cave);
         return cave;
+    }
+
+    // Floor shapes per cave space: (roll, step height, step ramp share, plateau height, plateau offset, radius, ramp).
+    // Steps/ramps stay well under the player's 45° slope limit (steepest ≈ 1.5 × height / ramp length), so the whole
+    // route can be walked both ways (also uphill carrying ore) without jumping. Plateaus sit away from tunnel joins.
+    private static readonly Dictionary<string, (float roll, float steps, float share, float plateau, Vector2 offset, float radius, float ramp)> FloorShapes =
+        new Dictionary<string, (float, float, float, float, Vector2, float, float)>
+    {
+        { "MainTunnel",    (0.3f, 1.0f,  0.5f, 0f,   Vector2.zero,              5f,   4f) },
+        { "Cavern_01",     (0.6f, 0f,    0.5f, 0f,   Vector2.zero,              5f,   4f) },
+        { "OreArea_01",    (0.3f, 0f,    0.5f, 0f,   Vector2.zero,              5f,   4f) },
+        { "SideTunnel",    (0.3f, 1.0f,  0.5f, 0f,   Vector2.zero,              5f,   4f) },
+        { "SideCave",      (0.4f, 0f,    0.5f, 1.4f, new Vector2(2.7f, 7.3f),   3.5f, 4f) },   // ledge away from the side tunnel
+        { "Tunnel_02",     (0.3f, 2.0f,  0.45f, 0f,   Vector2.zero,              5f,   4f) },
+        { "Cavern_02",     (0.6f, 0f,    0.5f, 0f,   Vector2.zero,              5f,   4f) },
+        { "MiningArea_02", (0.3f, 0f,    0.5f, 1.0f, new Vector2(-5.6f, -2.1f), 2.5f, 3.5f) }, // mining shelf at the back
+        { "CombatTunnel",  (0.3f, 1.0f,  0.5f, 0f,   Vector2.zero,              5f,   4f) },
+        { "CombatArea",    (0.4f, 0f,    0.5f, 1.6f, new Vector2(9f, 2f),       5f,   4.5f) }, // high ground for fights
+        { "DeepTunnel_A",  (0.3f, 2.0f,  0.55f, 0f,   Vector2.zero,              5f,   4f) },
+        { "DeepTunnel_B",  (0.3f, 2.0f,  0.55f, 0f,   Vector2.zero,              5f,   4f) },
+        { "DeepTunnel_C",  (0.3f, 2.0f,  0.65f, 0f,   Vector2.zero,              5f,   4f) },
+        { "DeepCavern",    (0.5f, 0f,    0.5f, 2.0f, new Vector2(15f, 0f),      6f,   6f) },   // raised shelf east of the route
+        { "BossGate",      (0.2f, 1.0f,  0.6f, 0f,   Vector2.zero,              5f,   4f) },
+        { "BossArena",     (0f,   0f,    0.5f, 0f,   Vector2.zero,              5f,   4f) },   // flat: the arena platform sits on it
+    };
+
+    /// <summary>Gives the cave spaces their default floor shapes (steps, roll, plateaus). Rebuild afterwards.</summary>
+    [MenuItem("Ore What/Island Map/Apply Default Floor Shapes")]
+    public static void ApplyFloorShapesMenu()
+    {
+        var caveT = GameObject.Find("Island") != null ? GameObject.Find("Island").transform.Find("Cave") : null;
+        if (caveT == null) { Debug.LogError("[Ore What] No Environment/Island/Cave in the open scene."); return; }
+        ApplyFloorShapes(caveT.GetComponent<CaveLayout>());
+        EditorSceneManager.MarkSceneDirty(caveT.gameObject.scene);
+        Debug.Log("[Ore What] Floor shapes applied. Run Build Or Rebuild Island Map to regenerate the rock.");
+    }
+
+    private static void ApplyFloorShapes(CaveLayout cave)
+    {
+        foreach (CaveSpace s in cave.GetComponentsInChildren<CaveSpace>())
+        {
+            if (!FloorShapes.TryGetValue(s.name, out var f)) continue;
+            Undo.RecordObject(s, "Floor Shapes");
+            s.SetFloorShape(f.roll, f.steps, f.share, f.plateau, f.offset, f.radius, f.ramp);
+            EditorUtility.SetDirty(s);
+        }
     }
 
     private static CaveSpace NewSpace(Transform parent, string name, Vector3 floor, CaveSpace.Kind kind, Vector3 size,
@@ -748,9 +796,9 @@ public static class IslandMapBuilder
             col.GetComponent<BoxCollider>().size = size;
         }
 
-        // Rails from the plaza into the mine, with a cart.
+        // Rails from the plaza into the mine, along the right side (a spur beside the walking route), with a cart.
         var rails = new PropMesh(d.wood, d.metal);
-        Vector3 railStart = new Vector3(mouth.x, 0f, Plaza.y + 4f);
+        Vector3 railStart = new Vector3(mouth.x, 0f, Plaza.y + 4f) + side * RailSideOffset;
         Vector3? previous = null;
         float railLength = Vector3.Distance(new Vector3(mouth.x, 0f, mouth.z), railStart) + 35f;
         for (float s = 0f; s <= railLength; s += 2f)
@@ -794,6 +842,21 @@ public static class IslandMapBuilder
             if (Physics.Raycast(p + Vector3.up * 6f, Vector3.down, out RaycastHit hit, 12f)) p = hit.point;
             d.Lamp(entranceLights, p, mouth - inward * 3f, new Color(1f, 0.72f, 0.4f), 5f, 18f, true);
         }
+        // Floodlights in the ravine, aimed at the mouth: the timber frames and rock face stay readable even in the
+        // ravine's shade. Local lights only (the sun and the cave's darkness are unchanged).
+        foreach (float sgn in new[] { -1f, 1f })
+        {
+            Vector3 p = mouth - inward * 15f + side * 11f * sgn;
+            if (Physics.Raycast(p + Vector3.up * 10f, Vector3.down, out RaycastHit hit, 20f)) p = hit.point;
+            Floodlight(d, entranceProps, entranceLights, p, mouth + inward * 2f + Vector3.up * 5f, sgn > 0 ? "R" : "L");
+        }
+        var signLight = new GameObject("Sign Light", typeof(Light)).GetComponent<Light>();
+        signLight.transform.SetParent(entranceLights, false);
+        Vector3 signAt = new Vector3(Plaza.x + 12f, 0f, Plaza.y - 2f);
+        signLight.transform.position = new Vector3(signAt.x, Height(terrain, signAt.x, signAt.z) + 3.2f, signAt.z - 1.2f);
+        signLight.type = LightType.Point; signLight.color = new Color(1f, 0.8f, 0.55f); signLight.intensity = 2.5f; signLight.range = 4.5f;
+        signLight.shadows = LightShadows.None;
+        d.lights++;
         Transform pathLights = Child(lighting, "Path");
         for (int i = 0; i < 4; i++)
         {
@@ -891,6 +954,9 @@ public static class IslandMapBuilder
                 z.Set(kind, tier, s.SpaceKind == CaveSpace.Kind.Room ? Mathf.Max(s.Size.x, s.Size.z) : s.Size.x * 2f, $"Generated for {s.name} (depth {depth:F2}).");
             }
         }
+        string arena = DressBossArena(d, Space("BossArena"), Space("BossGate"), Child(props, "BossArena"), Child(lighting, "BossArena"));
+        if (arena != null) missed.Add(arena);
+
         var start = new GameObject("PlayerStart").AddComponent<MapZone>();
         start.transform.SetParent(zones, false);
         GameObject player = GameObject.FindWithTag("Player");
@@ -906,6 +972,207 @@ public static class IslandMapBuilder
     }
 
     private static ItemData Item(string name) => AssetDatabase.LoadAssetAtPath<ItemData>($"Assets/Items/{name}.asset");
+
+    private const float RailSideOffset = 6f; // rails / cart this far right of the route's centre line
+
+    /// <summary>A site floodlight: a wooden pole with a lamp head and a Spot Light aimed at a point.</summary>
+    private static void Floodlight(Dresser d, Transform propParent, Transform lightParent, Vector3 foot, Vector3 aimAt, string tag)
+    {
+        Vector3 head = foot + Vector3.up * 5f;
+        Vector3 flat = aimAt - foot; flat.y = 0f;
+        Quaternion facing = Quaternion.LookRotation(flat.normalized);
+        var pole = new PropMesh(d.wood, d.metal, d.glow);
+        pole.Box(Vector3.up * 2.5f, facing, new Vector3(0.22f, 5f, 0.22f), 0);
+        pole.Box(Vector3.up * 0.15f, facing, new Vector3(0.9f, 0.3f, 0.9f), 0);
+        pole.Box(Vector3.up * 5.1f + facing * Vector3.forward * 0.25f, facing, new Vector3(0.7f, 0.5f, 0.3f), 1);
+        pole.Box(Vector3.up * 5.1f + facing * Vector3.forward * 0.42f, facing, new Vector3(0.55f, 0.36f, 0.04f), 2);
+        GameObject go = pole.Build("Floodlight " + tag, propParent, foot, "Floodlight");
+        var col = go.AddComponent<BoxCollider>(); col.center = Vector3.up * 2.5f; col.size = new Vector3(0.3f, 5f, 0.3f);
+
+        var l = new GameObject("Floodlight " + tag, typeof(Light)).GetComponent<Light>();
+        l.transform.SetParent(lightParent, false);
+        l.transform.SetPositionAndRotation(head + facing * Vector3.forward * 0.5f, Quaternion.LookRotation(aimAt - head));
+        l.type = LightType.Spot; l.color = new Color(1f, 0.85f, 0.65f);
+        l.intensity = 60f; l.range = 40f; l.spotAngle = 60f; l.innerSpotAngle = 35f;
+        l.shadows = LightShadows.None;
+        d.lights++;
+    }
+
+    /// <summary>
+    /// The boss arena's look (no gameplay): a stone platform with a metal-edged inlay, a ring of rock formations
+    /// around the edge with a gap at the gate, a timber frame at the gate, and a mining headframe over a glowing
+    /// crystal in the middle, lit from above. Returns a note if something couldn't be placed.
+    /// </summary>
+    private static string DressBossArena(Dresser d, CaveSpace arena, CaveSpace gate, Transform props, Transform lights)
+    {
+        if (arena == null) return null;
+        Vector3 centre = arena.transform.position;
+        if (!Physics.Raycast(centre + Vector3.up * 3f, Vector3.down, out RaycastHit floorHit, 10f)) return "BossArena floor";
+        centre = floorHit.point;
+        Material stone = SimpleMaterial("ArenaStone", new Color(0.24f, 0.23f, 0.27f), Color.black);
+
+        // Floor: a 14 m stone disc 0.15 m above the rock floor (a normal step up), an inner metal-edged ring.
+        var floor = new PropMesh(stone, d.metal, d.wood);
+        floor.Cyl(Vector3.up * -0.05f, Quaternion.identity, new Vector3(14f, 0.2f, 14f), 0); // the built-in Cylinder.fbx mesh has radius 1
+        floor.Cyl(Vector3.up * -0.02f, Quaternion.identity, new Vector3(6.5f, 0.2f, 6.5f), 2);
+        for (int i = 0; i < 28; i++)
+        {
+            float a = i / 28f * Mathf.PI * 2f;
+            foreach (float r in new[] { 13.9f, 6.5f })
+            {
+                if (r < 10f && i % 2 == 1) continue;
+                Vector3 at = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * r + Vector3.up * 0.16f;
+                floor.Box(at, Quaternion.Euler(0f, -a * Mathf.Rad2Deg, 0f), new Vector3(0.35f, 0.06f, r < 10f ? 1.5f : 3.2f), 1);
+            }
+        }
+        GameObject platform = floor.Build("ArenaFloor", props, centre, "ArenaFloor");
+        platform.AddComponent<MeshCollider>().sharedMesh = platform.GetComponent<MeshFilter>().sharedMesh;
+
+        // Centre: a mining headframe (4 posts, braces, a pulley wheel and cable) over a glowing crystal.
+        var frame = new PropMesh(d.wood, d.metal);
+        float h = 9f, half = 2.3f;
+        var postColliders = new List<Vector3>();
+        foreach (float x in new[] { -half, half })
+            foreach (float z in new[] { -half, half })
+            {
+                frame.Box(new Vector3(x, h * 0.5f, z), Quaternion.identity, new Vector3(0.45f, h, 0.45f), 0);
+                postColliders.Add(new Vector3(x, h * 0.5f, z));
+            }
+        foreach (float y in new[] { 3.5f, h })
+        {
+            frame.Box(new Vector3(0f, y, -half), Quaternion.identity, new Vector3(half * 2f + 0.5f, 0.35f, 0.35f), 0);
+            frame.Box(new Vector3(0f, y, half), Quaternion.identity, new Vector3(half * 2f + 0.5f, 0.35f, 0.35f), 0);
+            frame.Box(new Vector3(-half, y, 0f), Quaternion.identity, new Vector3(0.35f, 0.35f, half * 2f + 0.5f), 0);
+            frame.Box(new Vector3(half, y, 0f), Quaternion.identity, new Vector3(0.35f, 0.35f, half * 2f + 0.5f), 0);
+        }
+        foreach (float sgn in new[] { -1f, 1f })
+        {
+            frame.Box(new Vector3(sgn * half, (3.5f + h) * 0.5f, 0f), Quaternion.Euler(sgn * 35f, 0f, 0f), new Vector3(0.25f, 6.8f, 0.25f), 0);
+            frame.Box(new Vector3(0f, (3.5f + h) * 0.5f, sgn * half), Quaternion.Euler(0f, 0f, sgn * 35f), new Vector3(0.25f, 6.8f, 0.25f), 0);
+        }
+        frame.Cyl(new Vector3(0f, h + 1.2f, 0f), Quaternion.Euler(0f, 0f, 90f), new Vector3(1.3f, 0.15f, 1.3f), 1);
+        frame.Box(new Vector3(0f, h + 0.5f, 0f), Quaternion.identity, new Vector3(0.3f, 1.4f, 0.3f), 1);
+        frame.Box(new Vector3(1.25f, (h + 1.2f + 4.2f) * 0.5f, 0f), Quaternion.identity, new Vector3(0.07f, h + 1.2f - 4.2f, 0.07f), 1);
+        GameObject headframe = frame.Build("Headframe", props, centre + Vector3.up * 0.15f, "ArenaHeadframe");
+        foreach (Vector3 c in postColliders)
+        {
+            var col = new GameObject("Post Collider", typeof(BoxCollider));
+            col.transform.SetParent(headframe.transform, false);
+            col.transform.localPosition = c;
+            col.GetComponent<BoxCollider>().size = new Vector3(0.5f, h, 0.5f);
+        }
+        GameObject crystal = Place(OreRockPrefab, props, centre + Vector3.up * 0.15f, 25f, 3.2f);
+        if (crystal != null)
+        {
+            crystal.name = "Arena Crystal";
+            foreach (var r in crystal.GetComponentsInChildren<Renderer>()) r.sharedMaterial = d.crystal;
+            if (TryBounds(crystal, out Bounds cb)) // solid, so nobody walks through it between the posts
+            {
+                var box = crystal.AddComponent<BoxCollider>();
+                box.center = crystal.transform.InverseTransformPoint(cb.center);
+                box.size = Vector3.Scale(cb.size, new Vector3(1f / crystal.transform.lossyScale.x, 1f / crystal.transform.lossyScale.y, 1f / crystal.transform.lossyScale.z)) * 0.8f;
+            }
+            GameObjectUtility.SetStaticEditorFlags(crystal, StaticEditorFlags.BatchingStatic);
+        }
+
+        // Lights: warm work light under the headframe top, cyan glow from the crystal.
+        AddPointLight(lights, "Headframe Light", centre + Vector3.up * (h - 0.6f), new Color(1f, 0.62f, 0.36f), 16f, 34f);
+        AddPointLight(lights, "Crystal Glow", centre + Vector3.up * 2.2f, new Color(0.35f, 0.85f, 1f), 7f, 14f);
+        d.lights += 2;
+
+        // Rock formations around the edge, leaving the gate side open.
+        Vector3 gateDir = gate != null ? (gate.End.position - centre) : Vector3.forward;
+        gateDir.y = 0f; gateDir.Normalize();
+        int pillars = 0;
+        for (int i = 0; i < 12; i++)
+        {
+            float a = (i + 0.5f) / 12f * Mathf.PI * 2f;
+            var dir = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a));
+            if (Vector3.Angle(dir, gateDir) < 32f) continue; // the way in stays open
+            Vector3 at = centre + Vector3.Scale(dir, new Vector3(arena.Size.x, 0f, arena.Size.z)) * 0.8f;
+            if (!Physics.Raycast(at + Vector3.up * 6f, Vector3.down, out RaycastHit hit, 14f) || !hit.collider.transform.IsChildOf(d.generated)) continue;
+            // A tall, narrow rock column (9-13 m), sunk a little into the floor. Kept solid: it's cover.
+            GameObject rock = Place(RockFolder + "PT_Generic_Rock_01.prefab", props, hit.point - Vector3.up * 0.8f, i * 53f, 9f + (i * 37 % 5));
+            if (rock == null) continue;
+            rock.name = "Arena Pillar";
+            rock.transform.localScale = Vector3.Scale(rock.transform.localScale, new Vector3(0.5f, 1f, 0.5f));
+            if (TryBounds(rock, out Bounds rb))
+            {
+                var box = rock.AddComponent<BoxCollider>();
+                box.center = rock.transform.InverseTransformPoint(rb.center);
+                box.size = Vector3.Scale(rb.size, new Vector3(1f / rock.transform.lossyScale.x, 1f / rock.transform.lossyScale.y, 1f / rock.transform.lossyScale.z)) * 0.85f;
+            }
+            GameObjectUtility.SetStaticEditorFlags(rock, StaticEditorFlags.BatchingStatic | StaticEditorFlags.OccludeeStatic);
+            pillars++;
+        }
+
+        // Gate: a timber frame where the gate tunnel opens into the arena.
+        if (gate != null)
+        {
+            Vector3 g = gate.End.position, inward = (gate.End.position - gate.transform.position); inward.y = 0f; inward.Normalize();
+            Vector3 gSide = Vector3.Cross(Vector3.up, inward).normalized;
+            if (Physics.Raycast(g + Vector3.up * 3f, Vector3.down, out RaycastHit gh, 10f)) g = gh.point;
+            float span = gate.Size.x - 2f, fh = 8f;
+            var gateFrame = new PropMesh(d.wood, d.metal);
+            Quaternion rot = Quaternion.LookRotation(inward);
+            var colliders = new List<Vector3>();
+            foreach (float sgn in new[] { -1f, 1f })
+            {
+                Vector3 b = gSide * span * sgn;
+                gateFrame.Box(b + Vector3.up * (fh * 0.5f - 0.3f), rot, new Vector3(0.7f, fh + 0.6f, 0.7f), 0);
+                gateFrame.Box(b + Vector3.up * (fh - 1.6f) - gSide * sgn * 1.1f, rot * Quaternion.Euler(0f, 0f, sgn * 45f), new Vector3(0.35f, 2.8f, 0.35f), 0);
+                colliders.Add(b + Vector3.up * (fh * 0.5f));
+            }
+            gateFrame.Box(Vector3.up * fh, rot, new Vector3(span * 2f + 1.6f, 0.8f, 0.8f), 0);
+            gateFrame.Box(Vector3.up * (fh - 0.45f), rot, new Vector3(span * 2f + 1.7f, 0.12f, 0.9f), 1);
+            GameObject gf = gateFrame.Build("GateFrame", props, g, "ArenaGateFrame");
+            foreach (Vector3 c in colliders)
+            {
+                var col = new GameObject("Post Collider", typeof(BoxCollider));
+                col.transform.SetParent(gf.transform, false);
+                col.transform.SetPositionAndRotation(g + c, rot);
+                col.GetComponent<BoxCollider>().size = new Vector3(0.7f, fh, 0.7f);
+            }
+        }
+        return pillars < 6 ? $"BossArena: only {pillars} pillars placed" : null;
+    }
+
+    /// <summary>Instantiates a prefab scaled to a height, standing on <paramref name="pos"/> (its colliders removed).</summary>
+    private static GameObject Place(string prefabPath, Transform parent, Vector3 pos, float yaw, float height)
+    {
+        var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+        if (prefab == null) return null;
+        var go = (GameObject)PrefabUtility.InstantiatePrefab(prefab, parent);
+        go.transform.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
+        foreach (var c in go.GetComponentsInChildren<Collider>(true)) Object.DestroyImmediate(c);
+        if (TryBounds(go, out Bounds b) && b.size.y > 0.001f)
+        {
+            go.transform.localScale *= height / b.size.y;
+            TryBounds(go, out b);
+            go.transform.position += Vector3.up * (pos.y - b.min.y);
+        }
+        return go;
+    }
+
+    private static bool TryBounds(GameObject go, out Bounds bounds)
+    {
+        bounds = default;
+        bool any = false;
+        foreach (var r in go.GetComponentsInChildren<Renderer>())
+        {
+            if (!any) { bounds = r.bounds; any = true; }
+            else bounds.Encapsulate(r.bounds);
+        }
+        return any;
+    }
+
+    private static void AddPointLight(Transform parent, string name, Vector3 at, Color color, float intensity, float range)
+    {
+        var l = new GameObject(name, typeof(Light)).GetComponent<Light>();
+        l.transform.SetParent(parent, false);
+        l.transform.position = at;
+        l.type = LightType.Point; l.color = color; l.intensity = intensity; l.range = range; l.shadows = LightShadows.None;
+    }
 
     private static GameObject LampPrefab(Material wood, Material metal, Material glow)
     {
@@ -943,7 +1210,7 @@ public static class IslandMapBuilder
         cart.Box(new Vector3(0f, 0.45f, 0f), Quaternion.identity, new Vector3(1.1f, 0.12f, 1.7f), 1);
         foreach (float x in new[] { -0.62f, 0.62f })
             foreach (float z in new[] { -0.6f, 0.6f })
-                cart.Cyl(new Vector3(x, 0.3f, z), Quaternion.Euler(0f, 0f, 90f), new Vector3(0.5f, 0.06f, 0.5f), 1);
+                cart.Cyl(new Vector3(x, 0.3f, z), Quaternion.Euler(0f, 0f, 90f), new Vector3(0.27f, 0.06f, 0.27f), 1); // radius (Cylinder.fbx is radius 1)
         GameObject go = cart.Build("MineCart", parent, floor, assetName);
         go.transform.rotation = rot;
         var box = go.AddComponent<BoxCollider>();

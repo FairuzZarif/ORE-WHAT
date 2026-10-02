@@ -140,6 +140,10 @@ public class ItemPickupInteractor : MonoBehaviour
 
         if (carryPressed && lookingAtOre && carrier.CanCarryMore)
         {
+            // Multiplayer: only the player who controls an item's physics can carry it; ask the host first.
+            if (WorldNetwork.Current != null && !WorldNetwork.Current.HasControl(Target) && carrier.CannotCarryReason(Target) == null
+                && WorldNetwork.Current.RequestCarry(Target, carrier))
+            { PlaySound(Target.Item); Target = null; return; }
             if (carrier.TryCarry(Target)) { PlaySound(Target.Item); Target = null; }
             else ShowMessage(carrier.CannotCarryReason(Target));
             return;
@@ -184,6 +188,14 @@ public class ItemPickupInteractor : MonoBehaviour
         if (item == null || item.IsBeingPickedUp || item.Item == null) return false;
         ItemData data = item.Item;
 
+        // Multiplayer: the host decides who gets it (only once); GrantPickup runs when it says yes.
+        if (WorldNetwork.Current != null)
+        {
+            if (inventory.SpaceFor(data) <= 0) { ShowMessage("Inventory Full"); return false; }
+            if (carrier != null && item.IsCarried) carrier.Forget(item);
+            if (WorldNetwork.Current.RequestPickup(item, inventory.SpaceFor(data))) { Target = null; return true; }
+        }
+
         int added = inventory.AddItem(data, item.Amount, out int slot);
         if (added <= 0)
         {
@@ -209,6 +221,27 @@ public class ItemPickupInteractor : MonoBehaviour
         PlaySound(data);
         PickedUp?.Invoke(data, added);
         return true;
+    }
+
+    /// <summary>
+    /// Multiplayer: the host gave this player an item it asked for (the world object is already gone).
+    /// Adds it like a normal pickup; whatever doesn't fit is dropped back into the world.
+    /// </summary>
+    public void GrantPickup(ItemData data, int amount)
+    {
+        if (data == null || amount <= 0) return;
+        int added = inventory.AddItem(data, amount, out int slot);
+        if (added < amount)
+        {
+            ShowMessage("Inventory Full");
+            Vector3 at = playerCamera != null ? playerCamera.transform.position + playerCamera.transform.forward * 0.8f : transform.position;
+            ItemDrops.Spawn(data, amount - added, at, Quaternion.identity, Vector3.zero, Vector3.zero);
+        }
+        if (added <= 0) return;
+        if (equipment != null && data.Equippable && equipment.Equipped == null && slot >= 0)
+            equipment.EquipSlot(slot);
+        PlaySound(data);
+        PickedUp?.Invoke(data, added);
     }
 
     private void PlaySound(ItemData item)

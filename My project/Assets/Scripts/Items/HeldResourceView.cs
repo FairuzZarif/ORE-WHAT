@@ -90,6 +90,9 @@ public class HeldResourceView : MonoBehaviour
         visual.transform.localRotation = Quaternion.identity;
 
         // Never a second physics object: strip everything that could collide or simulate.
+        // Multiplayer parts first (they depend on the NetworkObject), then the NetworkObject itself.
+        foreach (var n in visual.GetComponentsInChildren<Unity.Netcode.NetworkBehaviour>(true)) DestroyImmediate(n);
+        foreach (var n in visual.GetComponentsInChildren<Unity.Netcode.NetworkObject>(true)) DestroyImmediate(n);
         foreach (var d in visual.GetComponentsInChildren<DroppedItem>(true)) DestroyImmediate(d);
         foreach (var rb in visual.GetComponentsInChildren<Rigidbody>(true)) DestroyImmediate(rb);
         foreach (var c in visual.GetComponentsInChildren<Collider>(true)) DestroyImmediate(c);
