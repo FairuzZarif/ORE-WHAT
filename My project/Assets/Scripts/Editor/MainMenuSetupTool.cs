@@ -55,6 +55,8 @@ public static class MainMenuSetupTool
         if (previous.IsValid()) SceneManager.SetActiveScene(previous);
         EditorSceneManager.CloseScene(scene, true);
         SetBuildScenes();
+        if (AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Network/NetworkManager.prefab") != null)
+            MultiplayerSetupTool.AddMenu(null); // keep Host / Join on the rebuilt menu
         AssetDatabase.SaveAssets();
         Debug.Log($"[Ore What] Built {ScenePath} and made it the first build scene. Open it and press Play to try the menu.");
     }

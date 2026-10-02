@@ -49,16 +49,39 @@ public class FirstPersonPresentation : MonoBehaviour
     private readonly List<ViewModelMotion> motions = new List<ViewModelMotion>();
     private readonly List<Vector3> applied = new List<Vector3>(); // camera-space offset currently added to each view
 
-    private void Awake()
+    private int scannedChildren = -1;
+
+    private void Awake() => ScanViews();
+
+    /// <summary>
+    /// The views: camera children whose arms are posed by FirstPersonArmsIK. Rescanned whenever the camera's
+    /// children change or a view is missing (Play Mode doesn't reload scripts or the scene in this project, so a
+    /// list built once can go stale; a view missing from it isn't offset while the overlay camera is, and the
+    /// held item then swims across the screen as you look around).
+    /// </summary>
+    private void ScanViews()
     {
-        // The views: camera children whose arms are posed by FirstPersonArmsIK.
+        var oldViews = new List<Transform>(views);
+        var oldApplied = new List<Vector3>(applied);
+        views.Clear(); motions.Clear(); applied.Clear();
         foreach (Transform child in transform)
             if (child.GetComponentInChildren<FirstPersonArmsIK>(true) != null)
             {
+                int old = oldViews.IndexOf(child);
                 views.Add(child);
                 motions.Add(child.GetComponent<ViewModelMotion>());
-                applied.Add(Vector3.zero);
+                applied.Add(old >= 0 ? oldApplied[old] : Vector3.zero);
             }
+        scannedChildren = transform.childCount;
+    }
+
+    private bool ViewsStale()
+    {
+        if (transform.childCount != scannedChildren) return true;
+        foreach (Transform child in transform)
+            if (child.gameObject.activeInHierarchy && !views.Contains(child) && child.GetComponentInChildren<FirstPersonArmsIK>(true) != null)
+                return true;
+        return false;
     }
 
     private void OnDisable()
@@ -77,6 +100,7 @@ public class FirstPersonPresentation : MonoBehaviour
             rightShoulder = character.GetBoneTransform(HumanBodyBones.RightUpperArm);
         }
         if (leftShoulder == null || rightShoulder == null) return;
+        if (ViewsStale()) ScanViews();
 
         Vector3 realShoulders = (leftShoulder.position + rightShoulder.position) * 0.5f;
         WorldOffset = realShoulders - transform.TransformPoint(layoutShoulders);

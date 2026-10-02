@@ -66,11 +66,44 @@ public class RockHealth : MonoBehaviour
     {
         if (currentHealth <= 0) return; // already breaking
 
+        // Multiplayer: flash right away for feel, but the host applies the damage (once) and tells everyone.
+        if (WorldNetwork.Current != null)
+        {
+            Flash();
+            WorldNetwork.Current.RequestRockHit(this, damage);
+            return;
+        }
+        ApplyDamage(damage);
+    }
+
+    /// <summary>Removes health, flashes, and breaks the rock (with its drops) at zero. Returns true if it broke.
+    /// Single player: every hit. Multiplayer: only the host calls this.</summary>
+    public bool ApplyDamage(int damage)
+    {
+        if (currentHealth <= 0) return false;
+
         currentHealth -= damage;
         Flash();
 
-        if (currentHealth <= 0)
-            Break();
+        if (currentHealth > 0) return false;
+        Break(spawnOre: true);
+        return true;
+    }
+
+    /// <summary>Multiplayer: another player hit this rock; shows the hit and the host's health.</summary>
+    public void ShowNetworkHit(int health)
+    {
+        if (currentHealth <= 0) return;
+        currentHealth = health;
+        Flash();
+    }
+
+    /// <summary>Multiplayer (not the host): the host broke this rock. No drops here: the host spawns the shared ore.</summary>
+    public void BreakFromNetwork()
+    {
+        if (this == null) return;
+        currentHealth = 0;
+        Break(spawnOre: false);
     }
 
     private void Update()
@@ -104,14 +137,14 @@ public class RockHealth : MonoBehaviour
         }
     }
 
-    private void Break()
+    private void Break(bool spawnOre)
     {
         // Destroy() only happens at the end of the frame, so switch the rock's colliders
         // off now. Otherwise the new ore would spawn inside them and get shoved out violently.
         foreach (Collider c in GetComponentsInChildren<Collider>())
             c.enabled = false;
 
-        SpawnOre();
+        if (spawnOre) SpawnOre();
         Destroy(gameObject);
     }
 

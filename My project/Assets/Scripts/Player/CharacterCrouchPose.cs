@@ -26,6 +26,9 @@ public class CharacterCrouchPose : MonoBehaviour
 
     private Animator animator;
 
+    /// <summary>Used when there is no PlayerCrouch (another player's body in multiplayer): how crouched, 0..1.</summary>
+    public float ExternalAmount { get; set; }
+
     private void Awake()
     {
         animator = GetComponent<Animator>();
@@ -34,8 +37,8 @@ public class CharacterCrouchPose : MonoBehaviour
 
     private void OnAnimatorIK(int layerIndex)
     {
-        if (layerIndex != 0 || crouch == null) return;
-        float amount = crouch.Amount;
+        if (layerIndex != 0) return;
+        float amount = crouch != null ? crouch.Amount : ExternalAmount;
         if (amount <= 0.001f) return;
 
         // Feet where the animation has them, read before the body moves.
