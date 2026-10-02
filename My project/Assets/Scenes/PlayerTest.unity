@@ -2922,6 +2922,7 @@ GameObject:
   - component: {fileID: 96825212}
   - component: {fileID: 96825211}
   - component: {fileID: 96825214}
+  - component: {fileID: 96825215}
   m_Layer: 8
   m_Name: Player
   m_TagString: Player
@@ -3466,7 +3467,7 @@ MonoBehaviour:
   maxScale: 12
   aimMask:
     serializedVersion: 2
-    m_Bits: 4294966971
+    m_Bits: 179
   adaptSpeed: 5
 --- !u!114 &96825214
 MonoBehaviour:
@@ -3482,6 +3483,56 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::UnarmedAttack
   equipment: {fileID: 0}
   fists: {fileID: 0}
+--- !u!114 &96825215
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 96825190}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8a3c3b48e1c54c668c96b353590a8cc9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerFootsteps
+  outdoorClips:
+  - {fileID: 8300000, guid: a0b906fb2a474feda2bba8c1233c26f6, type: 3}
+  - {fileID: 8300000, guid: 7e9597ecc04f4059b0ee6551f48dc8fb, type: 3}
+  rockClips:
+  - {fileID: 8300000, guid: acab3b1808444935897750fbbb5a91ad, type: 3}
+  - {fileID: 8300000, guid: 35bb3306c98c4dabaf7d1a19c477c981, type: 3}
+  - {fileID: 8300000, guid: 2710ffbe6893470dbd6bee19f4eaab13, type: 3}
+  - {fileID: 8300000, guid: f9a56aa58f3043bca8c3492224ea8870, type: 3}
+  - {fileID: 8300000, guid: 77a1bf9a13ce44cfb107af55c362886a, type: 3}
+  - {fileID: 8300000, guid: 19da777965ef4bf883957cb511ea070f, type: 3}
+  - {fileID: 8300000, guid: 5351308aed104abc8b4dee4dd87b4bfc, type: 3}
+  - {fileID: 8300000, guid: e6b99f6e6ffc4674861f61e3b27ddac5, type: 3}
+  caveClips:
+  - {fileID: 8300000, guid: 9425bb2251bc45309b90d40b797e7674, type: 3}
+  - {fileID: 8300000, guid: 5192ff2dbe2d4d808044f8d66735507f, type: 3}
+  - {fileID: 8300000, guid: 7a9dd355cc5046a48f753254d1bc03b3, type: 3}
+  walkStepDistance: 1.2
+  sprintStepDistance: 1.65
+  movementThreshold: 0.2
+  volume: 0.6
+  grassVolumeMultiplier: 1
+  rockVolumeMultiplier: 1
+  caveVolumeMultiplier: 0.55
+  caveClipVolumeMultipliers:
+  - 0.85
+  - 0.75
+  - 0.65
+  grassPlaybackSpeed: 1
+  rockPlaybackSpeed: 1
+  cavePlaybackSpeed: 1
+  caveClipSpeedMultipliers:
+  - 1
+  - 1
+  - 1
+  groundProbeDistance: 0.75
+  groundProbeHeight: 0.25
+  caveCeilingCheckDistance: 25
+  caveTransitionTime: 0.8
 --- !u!1 &121639643
 GameObject:
   m_ObjectHideFlags: 0
