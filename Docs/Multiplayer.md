@@ -57,6 +57,52 @@ Items:       every item world prefab = DroppedItem + NetworkObject + NetworkTran
 * **Not networked on purpose**: first-person viewmodels, HUD, cameras, input, inventory/equipment contents,
   static map geometry, cave lighting.
 
+## What other players see (remote presentation)
+
+Local first-person views are never networked. Other players see your third-person body driven by small state + events
+(`NetworkPlayerAvatar` sends, `RemotePlayerPresentation` on the remote copy shows; purely visual, can never deal damage):
+
+| What | How it is sent | Remote result |
+|---|---|---|
+| Held item | `heldItem` NetworkVariable<int> (owner-written, only on change): NetworkWorld item index, -1 empty, -2 carrying | copy of the first-person item model switched on in the right hand bone; arms posed by a small two-bone IK to the baked hold pose (tilts with look pitch); empty = relaxed Animator arms |
+| Headlamp | `headlampOn` NetworkVariable<bool> (owner-written from `Headlamp.Changed`, no delay for the owner) | that body's Spot Light on/off + `HeadlampGlow` sprite at the lens |
+| Punch | `PunchRpc(right)` from `FistsController.Punched` | that arm goes guard → strike → back (baked from FistsController's own guard/strike poses) |
+| Mining swing | `SwingRpc(kind, impactTime, endTime)` from `PickaxeSwing.SwingStarted` | the first-person swing itself, baked (Right / Left / Overhead, ~50 samples/s), played from its start; kept clear of the head |
+| Shot | `ShotRpc()` (unreliable) from `WeaponController.ShotFired` | arm kick, muzzle flash particles + light, 3D shot sound |
+| Reload | `ReloadRpc(duration)` from `WeaponController.ReloadStarted` | the first-person reload itself, baked over its progress (gun pose, support hand, magazine out / away / back in, slide or charging handle), stretched over the sent duration |
+| Equip | the heldItem change | item raised into the hands over 0.25 s |
+
+Hold poses are **baked** by Set Up Multiplayer (`RemoteHoldPoseBaker`): each first-person view is put on the real
+shoulders like FirstPersonPresentation does, its own FirstPersonArmsIK is solved once, and the wrists / elbows / finger
+joints are stored in look space; the item model copy is parented to the right hand bone at the pose it has in the real
+hand. So remote players hold things exactly like their owner's third-person skeleton. **Re-run Set Up Multiplayer after
+changing a first-person view, grip, hand pose or item model.** Late joiners get heldItem + headlampOn automatically;
+one-off actions (punch, shot) aren't replayed.
+
+**Swings and reloads are baked too** (same tool): `PickaxeSwing.BeginSwingPreview/PreviewSwingAt` and
+`WeaponController.PreviewReloadPose` (editor-only, they run the components' own pose code) pose the first-person view
+at each sample time, the view's IK is solved, and the arms (plus the magazine / slide / charging-handle bone positions)
+are stored. Remote copies interpolate the samples, so their timing and phases are exactly the first-person ones.
+The first-person poses pass through the head (the camera is inside it; up to 26 cm for the pickaxe overhead swing), so
+the baker keeps the tool out of the head + hardhat (an ellipsoid fitted to the skull, hat and lamp vertices above the neck; Unity's skinned-mesh bounds were far too big): first the least forward tilt of the tool around the point
+between the hands (up to 40°, both hands stay on the handle), then the smallest move along the one direction per swing
+that needs the shortest arms; both smoothed over time. At runtime `KeepClearOfHead` re-checks against the real head
+bone (looking up/down tilts the head less than the look) and the left hand is placed relative to where the right hand
+actually got, so it stays on the handle even at full arm stretch.
+
+Mining tools are held in the swing's own resting pose (the first-person idle) moved lower, forward and toward the centre
+with the elbows down for third person (`ThirdPersonToolRest`: same grip on the handle; swing frames near the rest fade
+into it), so swings start and end exactly on the hold; any switch between hold, swing and reload (or a swing started during the previous one's recovery) blends all arm
+data over `transitionTime` (0.12 s). The rifle is shouldered for other players (`ShoulderLongGun`): the first-person
+hand-on-gun grip is kept, the whole gun is placed with its butt at the right shoulder and the barrel along the look,
+the support hand slides along the gun to the handguard and round to underneath, and the reload samples are re-based on
+it (the hand still goes to the magazine). The pistol keeps its first-person hold.
+Looking down, held poses follow the look pitch by turning around a point between the shoulders at the grip hand's rest height: an arm
+held out level (pistol) turns at the shoulder, low holds (tools, rifle) tip in the hands. Turned around the shoulders, low
+hands swung back through the body when looking down. Looking up they turn around the shoulders: the low pivot swung the
+hands up and back, folding the arms behind the shoulders. A support hand that isn't on the item (pistol) turns at its own
+height, and only when looking down; looking up it keeps its level pose.
+
 ## Setup / rebuilding
 
 * Menu **Ore What → Multiplayer → Set Up Multiplayer** (re-runnable) builds the prefabs in `Assets/Prefabs/Network`,
@@ -79,7 +125,9 @@ Extra arguments: `-lan`, `-nettimeout <s>`, `-maxplayers <n>`.
 ## Limitations / next steps
 
 * No host migration: when the host leaves, the game ends for everyone (they return to the menu with a message).
-* Other players' held tools/items and swing animations aren't shown yet (only the body); first-person stays local.
+* Remote actions are procedural approximations (no third-person punch/swing/reload clips exist); the exact
+  first-person swing curves, viewmodel sway and recoil patterns are not reproduced. Item pickup has no remote animation.
+* Carrying a world ore shows a generic two-handed hold; the carried rock itself sits where the owner's physics puts it.
 * No enemies or boss exist yet, so none are networked. When they are added: host-run AI, NetworkObject per enemy,
   damage requests through the same pattern as rocks.
 * Players can't damage each other (weapons ignore the Player layer).

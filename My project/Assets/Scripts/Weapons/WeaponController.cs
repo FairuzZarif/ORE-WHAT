@@ -192,6 +192,8 @@ public class WeaponController : HeldItemController
 
     /// <summary>Raised on every shot, hit or miss.</summary>
     public event Action ShotFired;
+    /// <summary>Raised when a reload starts, with its duration (seconds). Used to show it to other players.</summary>
+    public event Action<float> ReloadStarted;
     /// <summary>Raised when a shot hits something (anything with a collider).</summary>
     public event Action<RaycastHit> ShotHit;
 
@@ -239,11 +241,7 @@ public class WeaponController : HeldItemController
         playerRoot = transform.root;
         currentAmmo = magazineCapacity; // the gun starts with a full magazine
 
-        if (weaponRoot != null) { rootRestPos = weaponRoot.localPosition; rootRestRot = weaponRoot.localRotation; }
-        if (supportHandGrip != null) handRestPos = supportHandGrip.localPosition;
-        if (slide != null) { slideRest = slide.localPosition; slideDirModel = Vector3.back; }
-        if (magazine != null) { magRest = magazine.localPosition; magDirModel = weaponRoot.InverseTransformDirection(magazine.up); }
-        if (chargingHandle != null) chargeRest = chargingHandle.localPosition;
+        CaptureRest();
         if (muzzleLight != null) muzzleLight.enabled = false;
 
         // Sounds come from the gun itself (it sits just in front of the camera/listener).
@@ -258,6 +256,39 @@ public class WeaponController : HeldItemController
         if (equipSound == null) equipSound = WeaponSounds.Equip();
         if (impactMaterial != null) impactFX = CreateImpactFX(impactMaterial);
     }
+
+    /// <summary>Remembers the gun, hand grip and rig bones at rest (what recoil and the reload move from).</summary>
+    private void CaptureRest()
+    {
+        if (weaponRoot != null) { rootRestPos = weaponRoot.localPosition; rootRestRot = weaponRoot.localRotation; }
+        if (supportHandGrip != null) handRestPos = supportHandGrip.localPosition;
+        if (slide != null) { slideRest = slide.localPosition; slideDirModel = Vector3.back; }
+        if (magazine != null) { magRest = magazine.localPosition; magDirModel = weaponRoot.InverseTransformDirection(magazine.up); }
+        if (chargingHandle != null) chargeRest = chargingHandle.localPosition;
+    }
+
+#if UNITY_EDITOR
+    /// <summary>The rig bones the reload moves (magazine, slide, charging handle), for the multiplayer setup tool.</summary>
+    public Transform[] ReloadBones => new[] { magazine, slide, chargingHandle };
+
+    /// <summary>
+    /// Editor only, used to bake what other players see of this reload: poses the gun, support-hand grip and rig bones
+    /// exactly as the reload looks at progress t (0..1), through the same ApplyPose the game uses. Call on the gun at rest;
+    /// the caller restores the transforms afterwards.
+    /// </summary>
+    public void PreviewReloadPose(float t)
+    {
+        if (weaponRoot == null) weaponRoot = transform.Find("WeaponHolder");
+        if (supportHandGrip == null && weaponRoot != null) supportHandGrip = weaponRoot.Find("LeftHandGrip");
+        CaptureRest();
+        recoil = slideKick = 0f;
+        reloading = true;
+        reloadT = Mathf.Clamp01(t);
+        ApplyPose();
+        reloading = false;
+        reloadT = 0f;
+    }
+#endif
 
     private static AudioSource CreateSource(GameObject host)
     {
@@ -357,6 +388,7 @@ public class WeaponController : HeldItemController
         sprayIndex = 0;      // a new magazine starts a new spray
         lastShotTime = -10f; // and the recoil settles during the reload
         if (reloadSource != null) reloadSource.Stop();
+        ReloadStarted?.Invoke(reloadDuration);
     }
 
     /// <summary>Moves the reload on, plays each reload sound as its moment is reached, refills at the end.</summary>

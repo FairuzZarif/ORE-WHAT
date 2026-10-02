@@ -25,7 +25,7 @@ public class NetworkPlayerAvatar : NetworkBehaviour
         public float speed, forwardSpeed, walkPlayback, runPlayback, walkBackPlayback, verticalSpeed, pitch;
         public byte crouch;   // 0..255 = 0..1
         public byte jumps;    // counts up on every jump, so a missed update can't lose one
-        public bool grounded, headlamp;
+        public bool grounded;
         public bool ready;    // false until the owner has placed its player (the avatar is hidden until then)
 
         public void NetworkSerialize<T>(BufferSerializer<T> s) where T : IReaderWriter
@@ -34,13 +34,13 @@ public class NetworkPlayerAvatar : NetworkBehaviour
             s.SerializeValue(ref walkPlayback); s.SerializeValue(ref runPlayback); s.SerializeValue(ref walkBackPlayback);
             s.SerializeValue(ref verticalSpeed); s.SerializeValue(ref pitch);
             s.SerializeValue(ref crouch); s.SerializeValue(ref jumps);
-            s.SerializeValue(ref grounded); s.SerializeValue(ref headlamp); s.SerializeValue(ref ready);
+            s.SerializeValue(ref grounded); s.SerializeValue(ref ready);
         }
 
         public bool Equals(State o) =>
             speed == o.speed && forwardSpeed == o.forwardSpeed && walkPlayback == o.walkPlayback && runPlayback == o.runPlayback &&
             walkBackPlayback == o.walkBackPlayback && verticalSpeed == o.verticalSpeed && pitch == o.pitch &&
-            crouch == o.crouch && jumps == o.jumps && grounded == o.grounded && headlamp == o.headlamp && ready == o.ready;
+            crouch == o.crouch && jumps == o.jumps && grounded == o.grounded && ready == o.ready;
     }
 
     [Header("Body (this prefab's own parts)")]
@@ -51,6 +51,8 @@ public class NetworkPlayerAvatar : NetworkBehaviour
     [SerializeField] private Transform aim;
     [Tooltip("Blocks the local player from walking through other players.")]
     [SerializeField] private Collider bodyCollider;
+    [Tooltip("Shows the held item, the arms holding it and actions (punch, swing, shot, reload) to other players.")]
+    [SerializeField] private RemotePlayerPresentation presentation;
 
     [Header("Remote look")]
     [Tooltip("Share of the look pitch put into the chest / neck / head, so others see where you look.")]
@@ -64,6 +66,12 @@ public class NetworkPlayerAvatar : NetworkBehaviour
 
     private readonly NetworkVariable<State> state = new NetworkVariable<State>(default, NetworkVariableReadPermission.Everyone,
                                                                                 NetworkVariableWritePermission.Owner);
+    /// <summary>What the owner holds: an index into NetworkWorld's item list, NoItem (empty hands) or Carrying (a world object).</summary>
+    private readonly NetworkVariable<int> heldItem = new NetworkVariable<int>(NoItem, NetworkVariableReadPermission.Everyone,
+                                                                              NetworkVariableWritePermission.Owner);
+    private readonly NetworkVariable<bool> headlampOn = new NetworkVariable<bool>(false, NetworkVariableReadPermission.Everyone,
+                                                                                  NetworkVariableWritePermission.Owner);
+    private const int NoItem = -1, Carrying = -2;
 
     private static readonly int SpeedId = Animator.StringToHash("Speed");
     private static readonly int ForwardSpeedId = Animator.StringToHash("ForwardSpeed");
@@ -81,6 +89,11 @@ public class NetworkPlayerAvatar : NetworkBehaviour
     private PlayerCrouch playerCrouch;
     private Headlamp playerHeadlamp;
     private Transform playerCamera;
+    private PlayerEquipment equipment;
+    private bool heldResolved = true;
+    private FistsController fists;
+    private WeaponController[] weapons = new WeaponController[0];
+    private PickaxeSwing[] swings = new PickaxeSwing[0];
     private NetworkTransform netTransform;
     private byte jumps;
 
@@ -103,16 +116,27 @@ public class NetworkPlayerAvatar : NetworkBehaviour
             if (body != null) body.enabled = false;
             if (bodyCollider != null) bodyCollider.enabled = false;
             if (headlamp != null) { headlamp.SetOn(false); headlamp.enabled = false; }
+            if (presentation != null) presentation.enabled = false; // we see our own first-person views instead
         }
         else
         {
             shownJumps = state.Value.jumps;
             SetVisible(state.Value.ready); // hidden until its owner has put it at its spawn spot
+            // Persistent state (also right for players who join later): held item and headlamp.
+            heldItem.OnValueChanged += OnHeldItemChanged;
+            headlampOn.OnValueChanged += OnHeadlampChanged;
+            OnHeldItemChanged(NoItem, heldItem.Value);
+            OnHeadlampChanged(false, headlampOn.Value);
         }
         name = $"Player {OwnerClientId}" + (IsOwner ? " (you)" : "");
     }
 
-    public override void OnNetworkDespawn() => Unbind();
+    public override void OnNetworkDespawn()
+    {
+        heldItem.OnValueChanged -= OnHeldItemChanged;
+        headlampOn.OnValueChanged -= OnHeadlampChanged;
+        Unbind();
+    }
 
     private void Update()
     {
@@ -135,7 +159,6 @@ public class NetworkPlayerAvatar : NetworkBehaviour
             pitch = playerCamera != null ? Mathf.DeltaAngle(0f, playerCamera.localEulerAngles.x) : 0f,
             crouch = (byte)Mathf.RoundToInt(Mathf.Clamp01(playerCrouch != null ? playerCrouch.Amount : 0f) * 255f),
             jumps = jumps,
-            headlamp = playerHeadlamp != null && playerHeadlamp.IsOn,
             ready = true,
         };
         if (playerAnimator != null && playerAnimator.isInitialized)
@@ -149,6 +172,10 @@ public class NetworkPlayerAvatar : NetworkBehaviour
             s.grounded = playerAnimator.GetBool(GroundedId);
         }
         if (!s.Equals(state.Value)) state.Value = s;
+
+        // Held item: only written when it actually changes.
+        int held = equipment == null ? NoItem : equipment.IsCarrying ? Carrying : ItemIndex(equipment.Equipped);
+        if (held != heldItem.Value) heldItem.Value = held;
     }
 
     /// <summary>Finds this game's Player (it's in the map scene, which may still be loading), then places it.</summary>
@@ -165,6 +192,7 @@ public class NetworkPlayerAvatar : NetworkBehaviour
         Camera cam = player.GetComponentInChildren<Camera>(true);
         playerCamera = cam != null ? cam.transform : null;
         if (playerMotion != null) playerMotion.JumpStarted += OnLocalJump;
+        HookActions(player);
 
         PlaceAtSpawnSpot(player);
         // Jump straight there for everyone instead of sliding across the map from where the avatar was made.
@@ -176,8 +204,74 @@ public class NetworkPlayerAvatar : NetworkBehaviour
     private void Unbind()
     {
         if (playerMotion != null) playerMotion.JumpStarted -= OnLocalJump;
+        UnhookActions();
         player = null;
         playerMotion = null;
+    }
+
+    // ---------------------------------------------------------------- owner: actions → small events for the others
+    // Only VISUALS are sent. Damage stays where it is (the local punch / shot / swing code, and the host for rocks):
+    // a remote copy playing one of these never hits anything.
+
+    private void HookActions(PlayerMovement p)
+    {
+        equipment = p.GetComponent<PlayerEquipment>();
+        fists = equipment != null && equipment.UnarmedView != null ? equipment.UnarmedView.GetComponent<FistsController>() : null;
+        weapons = p.GetComponentsInChildren<WeaponController>(true);
+        swings = p.GetComponentsInChildren<PickaxeSwing>(true);
+        if (fists != null) fists.Punched += OnLocalPunch;
+        foreach (WeaponController w in weapons) { w.ShotFired += OnLocalShot; w.ReloadStarted += OnLocalReload; }
+        foreach (PickaxeSwing s in swings) s.SwingStarted += OnLocalSwing;
+        if (playerHeadlamp != null)
+        {
+            playerHeadlamp.Changed += OnLocalHeadlamp;
+            headlampOn.Value = playerHeadlamp.IsOn;
+        }
+    }
+
+    private void UnhookActions()
+    {
+        if (fists != null) fists.Punched -= OnLocalPunch;
+        foreach (WeaponController w in weapons) if (w != null) { w.ShotFired -= OnLocalShot; w.ReloadStarted -= OnLocalReload; }
+        foreach (PickaxeSwing s in swings) if (s != null) s.SwingStarted -= OnLocalSwing;
+        if (playerHeadlamp != null) playerHeadlamp.Changed -= OnLocalHeadlamp;
+        fists = null;
+        weapons = new WeaponController[0];
+        swings = new PickaxeSwing[0];
+    }
+
+    // The local lamp has already switched (no delay for its owner); the others follow.
+    private void OnLocalHeadlamp(bool on) { if (IsSpawned && IsOwner) headlampOn.Value = on; }
+    private void OnLocalPunch(bool right) { if (IsSpawned) PunchRpc(right); }
+    private void OnLocalShot() { if (IsSpawned) ShotRpc(); }
+    private void OnLocalReload(float duration) { if (IsSpawned) ReloadRpc(duration); }
+    private void OnLocalSwing(int kind, float impact, float end) { if (IsSpawned) SwingRpc((byte)kind, impact, end); }
+
+    private static int ItemIndex(ItemData item)
+    {
+        if (item == null) return NoItem;
+        int i = NetworkWorld.Instance != null ? NetworkWorld.Instance.IndexOf(item) : -1;
+        return i >= 0 ? i : NoItem;
+    }
+
+    [Rpc(SendTo.NotMe)] private void PunchRpc(bool right) { if (presentation != null) presentation.Punch(right); }
+    [Rpc(SendTo.NotMe, Delivery = RpcDelivery.Unreliable)] private void ShotRpc() { if (presentation != null) presentation.Shot(); }
+    [Rpc(SendTo.NotMe)] private void ReloadRpc(float duration) { if (presentation != null) presentation.Reload(duration); }
+    [Rpc(SendTo.NotMe)] private void SwingRpc(byte kind, float impact, float end) { if (presentation != null) presentation.Swing(kind, impact, end); }
+
+    // ---------------------------------------------------------------- everyone else: persistent state
+
+    private void OnHeldItemChanged(int oldValue, int newValue)
+    {
+        if (presentation == null) return;
+        ItemData item = newValue >= 0 && NetworkWorld.Instance != null ? NetworkWorld.Instance.ItemAt(newValue) : null;
+        heldResolved = newValue < 0 || item != null; // a late joiner may get this before the world (item list) exists
+        presentation.SetHeldItem(item, newValue == Carrying);
+    }
+
+    private void OnHeadlampChanged(bool oldValue, bool on)
+    {
+        if (headlamp != null) headlamp.SetOn(on); // the real Spot Light on this body (its glow follows it)
     }
 
     private void OnLocalJump() => jumps++;
@@ -250,7 +344,8 @@ public class NetworkPlayerAvatar : NetworkBehaviour
         }
         if (crouchPose != null) crouchPose.ExternalAmount = crouch;
         if (aim != null) aim.localRotation = Quaternion.Euler(shown.pitch, 0f, 0f);
-        if (headlamp != null) headlamp.SetOn(s.headlamp);
+        if (presentation != null) presentation.Pitch = shown.pitch;
+        if (!heldResolved && NetworkWorld.Instance != null) OnHeldItemChanged(NoItem, heldItem.Value);
     }
 
     private bool visible = true;

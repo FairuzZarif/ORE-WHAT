@@ -25,6 +25,7 @@ public class NetworkSmokeTest : MonoBehaviour
         string[] args = System.Environment.GetCommandLineArgs();
         int i = System.Array.FindIndex(args, a => a == "-mptest");
         if (i < 0 || i + 1 >= args.Length) return;
+        if (args[i + 1] != "host" && args[i + 1] != "client" && args[i + 1] != "probe") return; // other roles belong to NetworkVisualTest
         var go = new GameObject("NetworkSmokeTest");
         DontDestroyOnLoad(go);
         go.AddComponent<NetworkSmokeTest>().role = args[i + 1];
