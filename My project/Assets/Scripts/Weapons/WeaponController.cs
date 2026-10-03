@@ -197,6 +197,11 @@ public class WeaponController : HeldItemController
     /// <summary>Raised when a shot hits something (anything with a collider).</summary>
     public event Action<RaycastHit> ShotHit;
 
+    public override float PlayerDamage => damage;
+    public override float AttackRange => range;
+    public override float AttackInterval => fireCooldown;
+    public override bool IsRanged => true;
+
     public bool IsReloading => reloading;
     public bool Automatic => automatic;
     /// <summary>Rounds left in the current magazine (tracked internally; not shown on the HUD).</summary>
@@ -418,6 +423,7 @@ public class WeaponController : HeldItemController
     private void Fire()
     {
         nextShotTime = Time.time + fireCooldown;
+        BeginAttack(); // one bullet = one possible hit
         currentAmmo--;
         ShotsFired++;
 
@@ -490,7 +496,7 @@ public class WeaponController : HeldItemController
         if (hit.rigidbody != null && !hit.rigidbody.isKinematic)
             hit.rigidbody.AddForceAtPosition(direction * hitForce, hit.point, ForceMode.Impulse);
 
-        if (impactFX != null && impactParticles > 0)
+        if (impactFX != null && impactParticles > 0 && target == null) // rock chips, not on players/creatures (they bleed instead)
         {
             impactFX.transform.SetPositionAndRotation(hit.point + hit.normal * 0.01f, Quaternion.LookRotation(hit.normal));
             impactFX.Emit(impactParticles);
@@ -676,6 +682,41 @@ public static class WeaponSounds
         AddSlide(data, 0f, 0.18f, 0.25f, rng);
         AddClick(data, 0.16f, 2200f, 0.4f, rng);
         return Finish("Equip (synth)", data, 0.6f);
+    }
+
+    /// <summary>Hit confirmed (you hurt another player): a short, bright "tick".</summary>
+    public static AudioClip HitTick()
+    {
+        var data = new float[Mathf.CeilToInt(Rate * 0.07f)];
+        for (int i = 0; i < data.Length; i++)
+        {
+            float t = i / (float)Rate;
+            float tone = Mathf.Sin(2f * Mathf.PI * 2600f * t) + 0.45f * Mathf.Sin(2f * Mathf.PI * 3900f * t);
+            data[i] = tone * Mathf.Exp(-t * 75f) * Mathf.Clamp01(t / 0.0006f);
+        }
+        AddClick(data, 0f, 3400f, 0.35f, new System.Random(13));
+        return Finish("HitTick (synth)", data, 0.7f);
+    }
+
+    /// <summary>Your hit killed another player: a heavier, wet "thump / squish" (instead of the tick).</summary>
+    public static AudioClip KillThump()
+    {
+        var data = new float[Mathf.CeilToInt(Rate * 0.32f)];
+        var rng = new System.Random(17);
+        float low = 0f, mid = 0f;
+        for (int i = 0; i < data.Length; i++)
+        {
+            float t = i / (float)Rate;
+            float white = (float)(rng.NextDouble() * 2.0 - 1.0);
+            low += (white - low) * 0.08f;
+            mid += (white - mid) * 0.35f;
+            float thump = Mathf.Sin(2f * Mathf.PI * (55f + 110f * Mathf.Exp(-t * 25f)) * t) * Mathf.Exp(-t * 13f);
+            // The squish: a burst of muffled noise that wobbles (slightly wet), right after the thump starts.
+            float squish = low * (0.6f + 0.4f * Mathf.Sin(2f * Mathf.PI * 38f * t)) * Mathf.Exp(-Mathf.Abs(t - 0.03f) * 30f) * 3f;
+            float crunch = mid * Mathf.Exp(-t * 60f) * 0.5f;
+            data[i] = (thump * 1.1f + squish + crunch) * Mathf.Clamp01(t / 0.001f);
+        }
+        return Finish("KillThump (synth)", data, 0.9f);
     }
 
     /// <summary>Metallic click: noise snap + a short ring.</summary>

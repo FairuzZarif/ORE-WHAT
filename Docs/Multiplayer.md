@@ -122,6 +122,17 @@ OreWhat.exe ... -mptest probe -joincode ZZZZZZ                                  
 ```
 Extra arguments: `-lan`, `-nettimeout <s>`, `-maxplayers <n>`.
 
+`NetworkCombatTest` (`-mptest chost|cclient|clate -lan -shots <dir>`, batch mode with graphics) checks player damage,
+death, ragdoll, respawn and late joining with real processes; see [PlayerCombat.md](PlayerCombat.md).
+
+## Player damage, death and respawn
+
+See [PlayerCombat.md](PlayerCombat.md). In short: `NetworkPlayerHealth` on the NetworkPlayer holds each player's
+health (host-written NetworkVariable) and dead/alive state; hits are requests the host validates. Weapon rays (which
+leave out the Player layer = the local player) hit other players' **hitboxes** (the ragdoll's head / chest / arm / leg
+colliders, Default layer, on while alive); damage depends on the body part. The NetworkPlayer root capsule is on the
+Player layer and only blocks movement.
+
 ## Limitations / next steps
 
 * No host migration: when the host leaves, the game ends for everyone (they return to the menu with a message).
@@ -130,6 +141,5 @@ Extra arguments: `-lan`, `-nettimeout <s>`, `-maxplayers <n>`.
 * Carrying a world ore shows a generic two-handed hold; the carried rock itself sits where the owner's physics puts it.
 * No enemies or boss exist yet, so none are networked. When they are added: host-run AI, NetworkObject per enemy,
   damage requests through the same pattern as rocks.
-* Players can't damage each other (weapons ignore the Player layer).
-* Rock hit validation is basic (damage limit, rock exists); no rate limiting / line-of-sight check.
-* Player health/stamina are local only (no shared death/respawn yet).
+* Rock hit validation is basic (damage limit, rock exists); no rate limiting / line-of-sight check (player hits have both).
+* Stamina stays local (only health is shared).

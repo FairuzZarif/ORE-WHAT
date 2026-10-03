@@ -134,9 +134,12 @@ public class MiningController : MonoBehaviour
         // With a swing animation, the hit waits for the strike to land (OnSwingImpact).
         // Without one, mining still works: hit immediately.
         if (HasSwingVisual)
-            activeSwing.Swing();
+            activeSwing.Swing(); // (its tool counts the new attack when the swing starts)
         else
+        {
+            HeldItemController.BeginAttack();
             ApplyHit();
+        }
     }
 
     /// <summary>Called by the tool's swing at the exact moment the strike lands.</summary>
@@ -172,6 +175,13 @@ public class MiningController : MonoBehaviour
         {
             MiningToolController tool = ActiveTool;
             rock.TakeHit(tool != null ? tool.DamagePerHit : damagePerHit);
+        }
+        else if (hitSomething && !hit.collider.transform.IsChildOf(transform))
+        {
+            // Not a rock: a tool hit can still hurt a player or creature (their own code decides what that means).
+            MiningToolController tool = ActiveTool;
+            var target = hit.collider.GetComponentInParent<IDamageable>();
+            if (target != null && tool != null && tool.PlayerDamage > 0f) target.TakeDamage(tool.PlayerDamage, hit);
         }
 
         if (hitSomething)

@@ -17,10 +17,17 @@ public class MiningToolController : HeldItemController
     [SerializeField, Min(1)] private int damagePerHit = 1;
     [Tooltip("Seconds between swings.")]
     [SerializeField, Min(0f)] private float swingCooldown = 0.6f;
+    [Tooltip("Damage of one hit to a player or creature (IDamageable). 0 = this tool only mines.")]
+    [SerializeField, Min(0f)] private float playerDamage = 20f;
+    [Tooltip("Reach of a swing, metres (the same as MiningController's Mining Range).")]
+    [SerializeField, Min(0.5f)] private float reach = 3f;
 
     public PickaxeSwing Swing => swing;
     public int DamagePerHit => damagePerHit;
     public float SwingCooldown => swingCooldown;
+    public override float PlayerDamage => playerDamage;
+    public override float AttackRange => reach;
+    public override float AttackInterval => swingCooldown;
 
     public override bool IsBusy => swing != null && swing.IsSwinging && !swing.CanSwing;
     public override Vector3 CameraOffset => swing != null ? swing.CameraOffset : Vector3.zero;
@@ -31,6 +38,8 @@ public class MiningToolController : HeldItemController
         if (swing == null) swing = GetComponentInChildren<PickaxeSwing>(true);
     }
 
-    private void OnEnable() { if (swing != null) swing.HitLanded += RaiseHitLanded; }
-    private void OnDisable() { if (swing != null) swing.HitLanded -= RaiseHitLanded; }
+    private void OnEnable() { if (swing != null) { swing.HitLanded += RaiseHitLanded; swing.SwingStarted += OnSwingStarted; } }
+    private void OnDisable() { if (swing != null) { swing.HitLanded -= RaiseHitLanded; swing.SwingStarted -= OnSwingStarted; } }
+
+    private void OnSwingStarted(int kind, float impact, float end) => BeginAttack(); // one swing = one possible hit
 }

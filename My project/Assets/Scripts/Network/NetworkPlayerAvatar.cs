@@ -15,6 +15,9 @@ using UnityEngine;
 ///           backward, jump, fall, land, crouch), the head tilting with the look, and their headlamp.
 ///
 /// It also puts its owner's Player at a free spawn spot when the map loads, so players don't start inside each other.
+/// Its body capsule (root, Player layer) only blocks movement; other players' weapons hit the body's hitboxes (the
+/// ragdoll's head / chest / arm / leg colliders, on while alive, Default layer), so they know the body part. Health,
+/// death and respawn are NetworkPlayerHealth's, which calls SetDead here to show a dead player as a ragdoll.
 /// </summary>
 [DefaultExecutionOrder(60)] // after PlayerMovement / PlayerLook / PlayerMotionState have run this frame
 public class NetworkPlayerAvatar : NetworkBehaviour
@@ -72,6 +75,8 @@ public class NetworkPlayerAvatar : NetworkBehaviour
     private readonly NetworkVariable<bool> headlampOn = new NetworkVariable<bool>(false, NetworkVariableReadPermission.Everyone,
                                                                                   NetworkVariableWritePermission.Owner);
     private const int NoItem = -1, Carrying = -2;
+    /// <summary>HeldItemIndex while carrying a world ore (hands full).</summary>
+    public const int CarryingItem = Carrying;
 
     private static readonly int SpeedId = Animator.StringToHash("Speed");
     private static readonly int ForwardSpeedId = Animator.StringToHash("ForwardSpeed");
@@ -104,8 +109,90 @@ public class NetworkPlayerAvatar : NetworkBehaviour
 
     /// <summary>The scene Player this avatar belongs to (owner only), once found.</summary>
     public PlayerMovement LocalPlayer => player;
+    /// <summary>What this player holds: an index into NetworkWorld's item list, -1 = empty hands, CarryingItem = carrying an ore.</summary>
+    public int HeldItemIndex => heldItem.Value;
+    /// <summary>Where this player's eyes are (the look pivot), for the host's hit checks.</summary>
+    public Vector3 EyePosition => aim != null ? aim.position : transform.position + Vector3.up * 1.6f;
 
-    private void Awake() => netTransform = GetComponent<NetworkTransform>();
+    // Dead: the body is a ragdoll (CharacterRagdoll on the body's Animator), no held item, no collider.
+    private CharacterRagdoll ragdoll;
+    private bool isDead, deadPending;
+    private Vector3 deadImpulse, deadPoint;
+    private float reviveHideUntil;
+    private Vector3 revivePosition, lastPosition, remoteVelocity;
+    private CapsuleCollider capsule;
+    private float standingHeight;
+    [Tooltip("Height of the body collider when fully crouched (the local CharacterController's crouched height).")]
+    [SerializeField, Min(0.5f)] private float crouchedHeight = 1.3f;
+
+    private void Awake()
+    {
+        netTransform = GetComponent<NetworkTransform>();
+        capsule = bodyCollider as CapsuleCollider;
+        standingHeight = capsule != null ? capsule.height : 1.8f;
+        if (body != null)
+        {
+            ragdoll = body.GetComponent<CharacterRagdoll>();
+            if (ragdoll == null) ragdoll = body.gameObject.AddComponent<CharacterRagdoll>();
+            hitReaction = body.GetComponent<CharacterHitReaction>();
+            if (hitReaction == null) hitReaction = body.gameObject.AddComponent<CharacterHitReaction>();
+        }
+    }
+
+    private CharacterHitReaction hitReaction;
+    private bool hitboxesOn;
+    // Hitboxes go on Default: every weapon / tool / punch ray hits it (they leave out Player, the local player's layer).
+    private const int HitboxLayer = 0;
+
+    /// <summary>
+    /// The skeleton that stands for this player on THIS computer, to check which body part a hit landed on: the
+    /// body others see, or for our own player (whose avatar body is hidden) the real Player's body.
+    /// </summary>
+    public CharacterRagdoll BodyForHits => IsOwner ? (player != null ? player.GetComponentInChildren<CharacterRagdoll>(true) : null) : ragdoll;
+
+    /// <summary>Everyone else: a confirmed hit on this player makes the body flinch (presentation only).</summary>
+    public void PlayHitReaction(Vector3 direction, Vector3 point, bool melee)
+    {
+        if (IsOwner || isDead || hitReaction == null) return;
+        hitReaction.Play(direction, point, melee);
+    }
+
+    /// <summary>
+    /// Everyone else: this player died (ragdoll, pushed by the killing hit) or came back. Called by NetworkPlayerHealth,
+    /// also for players who join while someone is dead.
+    /// </summary>
+    public void SetDead(bool dead, Vector3 impulse, Vector3 point)
+    {
+        if (IsOwner) return; // we see ourselves through the real Player (PlayerDeath)
+        if (dead)
+        {
+            deadImpulse = impulse;
+            deadPoint = point;
+            deadPending = true; // goes limp once the body is shown (a late joiner may not have placed it yet)
+            isDead = true;
+            if (bodyCollider != null) bodyCollider.enabled = false;
+            if (presentation != null) { presentation.SetHeldItem(null, false); presentation.enabled = false; }
+            return;
+        }
+        if (!isDead) return;
+        isDead = false;
+        deadPending = false;
+        if (ragdoll != null) ragdoll.Deactivate();
+        if (presentation != null) { presentation.enabled = true; OnHeldItemChanged(NoItem, heldItem.Value); }
+        // Hide the body until the owner's jump to the spawn arrives, so it doesn't stand up where it fell first.
+        reviveHideUntil = Time.time + 1f;
+        revivePosition = transform.position;
+        SetVisible(false);
+    }
+
+    /// <summary>Owner: after a respawn, jump straight to the player's new spot for everyone instead of sliding there.</summary>
+    public void TeleportToPlayer()
+    {
+        if (!IsOwner || player == null) return;
+        Transform root = player.transform;
+        if (netTransform != null) netTransform.Teleport(root.position, root.rotation, transform.localScale);
+        else transform.SetPositionAndRotation(root.position, root.rotation);
+    }
 
     public override void OnNetworkSpawn()
     {
@@ -121,6 +208,10 @@ public class NetworkPlayerAvatar : NetworkBehaviour
         else
         {
             shownJumps = state.Value.jumps;
+            // The host checks every hit against its copy of this body (which body part), so that copy must always be
+            // posed, even when the host isn't looking at it (an off-screen Animator would leave the hitboxes behind).
+            // Elsewhere the body is only needed when seen. (Batch-mode test players render nothing, so they animate too.)
+            if (body != null && (IsServer || Application.isBatchMode)) body.cullingMode = AnimatorCullingMode.AlwaysAnimate;
             SetVisible(state.Value.ready); // hidden until its owner has put it at its spawn spot
             // Persistent state (also right for players who join later): held item and headlamp.
             heldItem.OnValueChanged += OnHeldItemChanged;
@@ -264,6 +355,7 @@ public class NetworkPlayerAvatar : NetworkBehaviour
     private void OnHeldItemChanged(int oldValue, int newValue)
     {
         if (presentation == null) return;
+        if (isDead) { heldResolved = true; return; } // shown again on respawn (SetDead)
         ItemData item = newValue >= 0 && NetworkWorld.Instance != null ? NetworkWorld.Instance.ItemAt(newValue) : null;
         heldResolved = newValue < 0 || item != null; // a late joiner may get this before the world (item list) exists
         presentation.SetHeldItem(item, newValue == Carrying);
@@ -320,7 +412,30 @@ public class NetworkPlayerAvatar : NetworkBehaviour
     private void ShowRemote()
     {
         State s = state.Value;
-        if (s.ready != visible) SetVisible(s.ready);
+        if (reviveHideUntil > 0f)
+        {
+            // Just respawned: show the body once it has jumped to the spawn (or after a second at most).
+            if (Time.time >= reviveHideUntil || (transform.position - revivePosition).sqrMagnitude > 1f) { reviveHideUntil = 0f; SetVisible(s.ready); }
+        }
+        else if (s.ready != visible) SetVisible(s.ready);
+
+        // Hitboxes (head / chest / arms / legs) while the body is shown and alive; the ragdoll takes its colliders when dead.
+        bool wantHitboxes = visible && !isDead;
+        if (ragdoll != null && wantHitboxes != hitboxesOn) { hitboxesOn = wantHitboxes; ragdoll.SetHitboxes(wantHitboxes, HitboxLayer); }
+
+        // How fast the body moves (a ragdoll keeps that speed when it falls).
+        if (Time.deltaTime > 0f) remoteVelocity = Vector3.Lerp(remoteVelocity, (transform.position - lastPosition) / Time.deltaTime, 0.3f);
+        lastPosition = transform.position;
+        if (isDead)
+        {
+            if (deadPending && visible && ragdoll != null)
+            {
+                deadPending = false;
+                ragdoll.Activate(deadImpulse, deadPoint, remoteVelocity, CombatSettings.Current.maxRagdollSpeed);
+            }
+            return; // no animation, look tilt or held item while dead
+        }
+
         float k = 1f - Mathf.Exp(-smoothing * Time.deltaTime);
         shown.speed = Mathf.Lerp(shown.speed, s.speed, k);
         shown.forwardSpeed = Mathf.Lerp(shown.forwardSpeed, s.forwardSpeed, k);
@@ -343,6 +458,12 @@ public class NetworkPlayerAvatar : NetworkBehaviour
             if (s.jumps != shownJumps) { shownJumps = s.jumps; body.SetTrigger(JumpId); }
         }
         if (crouchPose != null) crouchPose.ExternalAmount = crouch;
+        if (capsule != null)
+        {
+            // The hit/bump capsule shrinks with the crouch (the feet stay put), so shots over a crouched head miss.
+            capsule.height = Mathf.Lerp(standingHeight, Mathf.Min(crouchedHeight, standingHeight), crouch);
+            capsule.center = new Vector3(capsule.center.x, capsule.height * 0.5f, capsule.center.z);
+        }
         if (aim != null) aim.localRotation = Quaternion.Euler(shown.pitch, 0f, 0f);
         if (presentation != null) presentation.Pitch = shown.pitch;
         if (!heldResolved && NetworkWorld.Instance != null) OnHeldItemChanged(NoItem, heldItem.Value);
@@ -354,13 +475,13 @@ public class NetworkPlayerAvatar : NetworkBehaviour
     {
         visible = on;
         foreach (Renderer r in GetComponentsInChildren<Renderer>(true)) r.enabled = on;
-        if (bodyCollider != null) bodyCollider.enabled = on;
+        if (bodyCollider != null) bodyCollider.enabled = on && !isDead;
     }
 
     // After the Animator (and before the headlamp, order 95): tilt the upper body with the look.
     private void LateUpdate()
     {
-        if (!IsSpawned || IsOwner || body == null || !body.isInitialized) return;
+        if (!IsSpawned || IsOwner || isDead || body == null || !body.isInitialized) return;
         if (head == null)
         {
             chest = body.GetBoneTransform(HumanBodyBones.UpperChest);

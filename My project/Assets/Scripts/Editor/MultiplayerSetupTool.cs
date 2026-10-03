@@ -121,6 +121,9 @@ public static class MultiplayerSetupTool
             return null;
         }
 
+        // The root (with the body capsule) is on the Player layer, which every weapon / tool / punch ray leaves out: the
+        // capsule only stops other players walking through. What weapons hit are the body's hitboxes (CharacterRagdoll's
+        // head / chest / arm / leg colliders, switched on at runtime on the Default layer by NetworkPlayerAvatar).
         var root = new GameObject("NetworkPlayer") { layer = PlayerLayer };
         root.AddComponent<NetworkObject>();
         var nt = root.AddComponent<NetworkTransform>();
@@ -196,6 +199,15 @@ public static class MultiplayerSetupTool
         aso.FindProperty("bodyCollider").objectReferenceValue = capsule;
         aso.FindProperty("presentation").objectReferenceValue = remote;
         aso.ApplyModifiedPropertiesWithoutUndo();
+
+        // Health, damage, death (ragdoll from the body's own skeleton) and respawn.
+        if (animator.GetComponent<CharacterRagdoll>() == null) animator.gameObject.AddComponent<CharacterRagdoll>();
+        var health = root.AddComponent<NetworkPlayerHealth>();
+        var hpso = new SerializedObject(health);
+        hpso.FindProperty("avatar").objectReferenceValue = avatar;
+        hpso.FindProperty("bloodEffect").objectReferenceValue = CombatSetupTool.EnsureBloodEffect();
+        hpso.FindProperty("bloodSplat").objectReferenceValue = CombatSetupTool.EnsureSplatMaterial();
+        hpso.ApplyModifiedPropertiesWithoutUndo();
 
         GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, PlayerPrefabPath);
         Object.DestroyImmediate(root);

@@ -82,7 +82,7 @@ public class PlayerEquipment : MonoBehaviour
     /// <summary>True while a world ore is being carried (the hands hold it instead of the selected item).</summary>
     public bool IsCarrying => carrier != null && carrier.IsCarrying;
     /// <summary>True while holding something that can mine (not while carrying an ore).</summary>
-    public bool CanMine => !IsCarrying && Equipped != null && Equipped.CanMine;
+    public bool CanMine => !hidden && !IsCarrying && Equipped != null && Equipped.CanMine;
     /// <summary>The shown view's behaviour, e.g. a MiningToolController (the FistsController only during an unarmed punch). Null for held ores and empty hands.</summary>
     public HeldItemController ActiveController { get; private set; }
     /// <summary>"Holding: Pickaxe   [G] Throw", "Carrying: Copper Ore", "Hands empty"...</summary>
@@ -103,7 +103,31 @@ public class PlayerEquipment : MonoBehaviour
     private CharacterController controller;
     private GameObject shownView;
     private ItemData shownItem;
-    private bool shownCarrying, shownOnce, unarmedActionShown;
+    private bool shownCarrying, shownOnce, unarmedActionShown, hidden;
+
+    /// <summary>True while the hands are put away (dead): nothing is shown and slot keys / throwing are ignored.</summary>
+    public bool Hidden => hidden;
+
+    /// <summary>Puts the hands away (no view, no weapon / tool / punch) or brings back the selected item.</summary>
+    public void SetHidden(bool hide)
+    {
+        if (hidden == hide) return;
+        hidden = hide;
+        if (hide) unarmedActionShown = false;
+        shownOnce = false; // force Refresh to switch
+        Refresh();
+    }
+
+    /// <summary>
+    /// The attack behaviour used with this item (its view's HeldItemController; null item = the unarmed punch), or
+    /// null if it has none (e.g. ores). The host uses it to check other players' hits against the real values.
+    /// </summary>
+    public HeldItemController ControllerFor(ItemData item)
+    {
+        if (item == null) return fistsView != null ? fistsView.GetComponentInChildren<HeldItemController>(true) : null;
+        HeldView v = Find(item);
+        return v != null && v.view != null ? v.view.GetComponentInChildren<HeldItemController>(true) : null;
+    }
 
     private void Awake()
     {
@@ -133,7 +157,7 @@ public class PlayerEquipment : MonoBehaviour
     private void Update()
     {
         Keyboard keyboard = Keyboard.current;
-        if (keyboard == null || inventory == null || Cursor.lockState != CursorLockMode.Locked) return;
+        if (keyboard == null || inventory == null || hidden || Cursor.lockState != CursorLockMode.Locked) return;
 
         for (int i = 0; i < Mathf.Min(9, inventory.SlotCount); i++)
             if (keyboard[Key.Digit1 + i].wasPressedThisFrame && !MidStrike())
@@ -158,7 +182,7 @@ public class PlayerEquipment : MonoBehaviour
     /// <summary>Shows / hides the unarmed punch view. Ignored while holding an item or carrying an ore.</summary>
     public void ShowUnarmedAction(bool show)
     {
-        if (show && (Equipped != null || IsCarrying)) show = false;
+        if (show && (Equipped != null || IsCarrying || hidden)) show = false;
         if (show == unarmedActionShown) return;
         unarmedActionShown = show;
         Refresh();
@@ -184,7 +208,8 @@ public class PlayerEquipment : MonoBehaviour
         ItemData item = carrying ? null : Equipped;
         if (carrying || item != null) unarmedActionShown = false; // holding something cancels a punch
         HeldView toolView = Find(item);
-        GameObject view = carrying ? ItemViewObject
+        GameObject view = hidden ? null // dead: hands put away
+                        : carrying ? ItemViewObject
                         : toolView != null && toolView.view != null ? toolView.view
                         : item != null ? ItemViewObject
                         : unarmedActionShown ? fistsView : null; // empty slot = nothing, except during a punch

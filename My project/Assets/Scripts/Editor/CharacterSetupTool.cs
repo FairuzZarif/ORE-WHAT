@@ -74,6 +74,7 @@ public static class CharacterSetupTool
         FirstPersonCharacterArmsTool.Apply(player); // its arms are the first-person arms
         CrouchSetupTool.Add(player);                // crouch pose on the new body
         HeadlampSetupTool.Add(player);              // headlamp follows the new body's head
+        CombatSetupTool.Add(player);                // the new body ragdolls when the player dies
 
         EditorSceneManager.MarkSceneDirty(player.scene);
         EditorSceneManager.SaveScene(player.scene);
