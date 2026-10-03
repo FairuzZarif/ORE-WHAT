@@ -192,8 +192,15 @@ public class WeaponController : HeldItemController
 
     /// <summary>Raised on every shot, hit or miss.</summary>
     public event Action ShotFired;
+    /// <summary>Raised when a reload starts, with its duration (seconds). Used to show it to other players.</summary>
+    public event Action<float> ReloadStarted;
     /// <summary>Raised when a shot hits something (anything with a collider).</summary>
     public event Action<RaycastHit> ShotHit;
+
+    public override float PlayerDamage => damage;
+    public override float AttackRange => range;
+    public override float AttackInterval => fireCooldown;
+    public override bool IsRanged => true;
 
     public bool IsReloading => reloading;
     public bool Automatic => automatic;
@@ -239,11 +246,7 @@ public class WeaponController : HeldItemController
         playerRoot = transform.root;
         currentAmmo = magazineCapacity; // the gun starts with a full magazine
 
-        if (weaponRoot != null) { rootRestPos = weaponRoot.localPosition; rootRestRot = weaponRoot.localRotation; }
-        if (supportHandGrip != null) handRestPos = supportHandGrip.localPosition;
-        if (slide != null) { slideRest = slide.localPosition; slideDirModel = Vector3.back; }
-        if (magazine != null) { magRest = magazine.localPosition; magDirModel = weaponRoot.InverseTransformDirection(magazine.up); }
-        if (chargingHandle != null) chargeRest = chargingHandle.localPosition;
+        CaptureRest();
         if (muzzleLight != null) muzzleLight.enabled = false;
 
         // Sounds come from the gun itself (it sits just in front of the camera/listener).
@@ -258,6 +261,39 @@ public class WeaponController : HeldItemController
         if (equipSound == null) equipSound = WeaponSounds.Equip();
         if (impactMaterial != null) impactFX = CreateImpactFX(impactMaterial);
     }
+
+    /// <summary>Remembers the gun, hand grip and rig bones at rest (what recoil and the reload move from).</summary>
+    private void CaptureRest()
+    {
+        if (weaponRoot != null) { rootRestPos = weaponRoot.localPosition; rootRestRot = weaponRoot.localRotation; }
+        if (supportHandGrip != null) handRestPos = supportHandGrip.localPosition;
+        if (slide != null) { slideRest = slide.localPosition; slideDirModel = Vector3.back; }
+        if (magazine != null) { magRest = magazine.localPosition; magDirModel = weaponRoot.InverseTransformDirection(magazine.up); }
+        if (chargingHandle != null) chargeRest = chargingHandle.localPosition;
+    }
+
+#if UNITY_EDITOR
+    /// <summary>The rig bones the reload moves (magazine, slide, charging handle), for the multiplayer setup tool.</summary>
+    public Transform[] ReloadBones => new[] { magazine, slide, chargingHandle };
+
+    /// <summary>
+    /// Editor only, used to bake what other players see of this reload: poses the gun, support-hand grip and rig bones
+    /// exactly as the reload looks at progress t (0..1), through the same ApplyPose the game uses. Call on the gun at rest;
+    /// the caller restores the transforms afterwards.
+    /// </summary>
+    public void PreviewReloadPose(float t)
+    {
+        if (weaponRoot == null) weaponRoot = transform.Find("WeaponHolder");
+        if (supportHandGrip == null && weaponRoot != null) supportHandGrip = weaponRoot.Find("LeftHandGrip");
+        CaptureRest();
+        recoil = slideKick = 0f;
+        reloading = true;
+        reloadT = Mathf.Clamp01(t);
+        ApplyPose();
+        reloading = false;
+        reloadT = 0f;
+    }
+#endif
 
     private static AudioSource CreateSource(GameObject host)
     {
@@ -357,6 +393,7 @@ public class WeaponController : HeldItemController
         sprayIndex = 0;      // a new magazine starts a new spray
         lastShotTime = -10f; // and the recoil settles during the reload
         if (reloadSource != null) reloadSource.Stop();
+        ReloadStarted?.Invoke(reloadDuration);
     }
 
     /// <summary>Moves the reload on, plays each reload sound as its moment is reached, refills at the end.</summary>
@@ -386,6 +423,7 @@ public class WeaponController : HeldItemController
     private void Fire()
     {
         nextShotTime = Time.time + fireCooldown;
+        BeginAttack(); // one bullet = one possible hit
         currentAmmo--;
         ShotsFired++;
 
@@ -458,7 +496,7 @@ public class WeaponController : HeldItemController
         if (hit.rigidbody != null && !hit.rigidbody.isKinematic)
             hit.rigidbody.AddForceAtPosition(direction * hitForce, hit.point, ForceMode.Impulse);
 
-        if (impactFX != null && impactParticles > 0)
+        if (impactFX != null && impactParticles > 0 && target == null) // rock chips, not on players/creatures (they bleed instead)
         {
             impactFX.transform.SetPositionAndRotation(hit.point + hit.normal * 0.01f, Quaternion.LookRotation(hit.normal));
             impactFX.Emit(impactParticles);
@@ -644,6 +682,41 @@ public static class WeaponSounds
         AddSlide(data, 0f, 0.18f, 0.25f, rng);
         AddClick(data, 0.16f, 2200f, 0.4f, rng);
         return Finish("Equip (synth)", data, 0.6f);
+    }
+
+    /// <summary>Hit confirmed (you hurt another player): a short, bright "tick".</summary>
+    public static AudioClip HitTick()
+    {
+        var data = new float[Mathf.CeilToInt(Rate * 0.07f)];
+        for (int i = 0; i < data.Length; i++)
+        {
+            float t = i / (float)Rate;
+            float tone = Mathf.Sin(2f * Mathf.PI * 2600f * t) + 0.45f * Mathf.Sin(2f * Mathf.PI * 3900f * t);
+            data[i] = tone * Mathf.Exp(-t * 75f) * Mathf.Clamp01(t / 0.0006f);
+        }
+        AddClick(data, 0f, 3400f, 0.35f, new System.Random(13));
+        return Finish("HitTick (synth)", data, 0.7f);
+    }
+
+    /// <summary>Your hit killed another player: a heavier, wet "thump / squish" (instead of the tick).</summary>
+    public static AudioClip KillThump()
+    {
+        var data = new float[Mathf.CeilToInt(Rate * 0.32f)];
+        var rng = new System.Random(17);
+        float low = 0f, mid = 0f;
+        for (int i = 0; i < data.Length; i++)
+        {
+            float t = i / (float)Rate;
+            float white = (float)(rng.NextDouble() * 2.0 - 1.0);
+            low += (white - low) * 0.08f;
+            mid += (white - mid) * 0.35f;
+            float thump = Mathf.Sin(2f * Mathf.PI * (55f + 110f * Mathf.Exp(-t * 25f)) * t) * Mathf.Exp(-t * 13f);
+            // The squish: a burst of muffled noise that wobbles (slightly wet), right after the thump starts.
+            float squish = low * (0.6f + 0.4f * Mathf.Sin(2f * Mathf.PI * 38f * t)) * Mathf.Exp(-Mathf.Abs(t - 0.03f) * 30f) * 3f;
+            float crunch = mid * Mathf.Exp(-t * 60f) * 0.5f;
+            data[i] = (thump * 1.1f + squish + crunch) * Mathf.Clamp01(t / 0.001f);
+        }
+        return Finish("KillThump (synth)", data, 0.9f);
     }
 
     /// <summary>Metallic click: noise snap + a short ring.</summary>

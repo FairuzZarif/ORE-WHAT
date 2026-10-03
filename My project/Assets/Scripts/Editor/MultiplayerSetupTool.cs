@@ -48,7 +48,7 @@ public static class MultiplayerSetupTool
             if (item.WorldPrefab != null && MakeItemNetworked(item.WorldPrefab)) networkedItems.Add(item.WorldPrefab);
 
         GameObject world = BuildWorldPrefab(items);
-        GameObject player = BuildPlayerPrefab();
+        GameObject player = BuildPlayerPrefab(items);
         if (player == null) return;
         GameObject manager = BuildManagerPrefab(player, world, networkedItems);
         AddMenu(manager);
@@ -111,7 +111,7 @@ public static class MultiplayerSetupTool
 
     // ------------------------------------------------------------------ player avatar
 
-    private static GameObject BuildPlayerPrefab()
+    private static GameObject BuildPlayerPrefab(List<ItemData> items)
     {
         GameObject scenePlayer = GameObject.Find("Player");
         Transform visual = scenePlayer != null ? scenePlayer.transform.Find("CharacterVisual") : null;
@@ -121,6 +121,9 @@ public static class MultiplayerSetupTool
             return null;
         }
 
+        // The root (with the body capsule) is on the Player layer, which every weapon / tool / punch ray leaves out: the
+        // capsule only stops other players walking through. What weapons hit are the body's hitboxes (CharacterRagdoll's
+        // head / chest / arm / leg colliders, switched on at runtime on the Default layer by NetworkPlayerAvatar).
         var root = new GameObject("NetworkPlayer") { layer = PlayerLayer };
         root.AddComponent<NetworkObject>();
         var nt = root.AddComponent<NetworkTransform>();
@@ -180,7 +183,12 @@ public static class MultiplayerSetupTool
             hso.FindProperty("aimSource").objectReferenceValue = aim;
             hso.FindProperty("startOn").boolValue = false;
             hso.ApplyModifiedPropertiesWithoutUndo();
+            AddHeadlampGlow(light.GetComponent<Light>());
         }
+
+        // What others see in this player's hands: items, arm poses, actions (baked from the first-person views).
+        var remote = root.AddComponent<RemotePlayerPresentation>();
+        RemoteHoldPoseBaker.Bake(scenePlayer, animator, remote, items);
 
         var avatar = root.AddComponent<NetworkPlayerAvatar>();
         var aso = new SerializedObject(avatar);
@@ -189,11 +197,74 @@ public static class MultiplayerSetupTool
         aso.FindProperty("headlamp").objectReferenceValue = headlamp;
         aso.FindProperty("aim").objectReferenceValue = aim;
         aso.FindProperty("bodyCollider").objectReferenceValue = capsule;
+        aso.FindProperty("presentation").objectReferenceValue = remote;
         aso.ApplyModifiedPropertiesWithoutUndo();
+
+        // Health, damage, death (ragdoll from the body's own skeleton) and respawn.
+        if (animator.GetComponent<CharacterRagdoll>() == null) animator.gameObject.AddComponent<CharacterRagdoll>();
+        var health = root.AddComponent<NetworkPlayerHealth>();
+        var hpso = new SerializedObject(health);
+        hpso.FindProperty("avatar").objectReferenceValue = avatar;
+        hpso.FindProperty("bloodEffect").objectReferenceValue = CombatSetupTool.EnsureBloodEffect();
+        hpso.FindProperty("bloodSplat").objectReferenceValue = CombatSetupTool.EnsureSplatMaterial();
+        hpso.ApplyModifiedPropertiesWithoutUndo();
 
         GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, PlayerPrefabPath);
         Object.DestroyImmediate(root);
         return prefab;
+    }
+
+    /// <summary>A soft glow sprite at the lens, seen by other players while the lamp is on (HeadlampGlow).</summary>
+    private static void AddHeadlampGlow(Light lamp)
+    {
+        var glow = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        glow.name = "Headlamp Glow";
+        Object.DestroyImmediate(glow.GetComponent<Collider>());
+        glow.layer = PlayerLayer;
+        glow.transform.SetParent(lamp.transform, false);
+        glow.transform.localPosition = new Vector3(0f, 0f, 0.02f);
+        var renderer = glow.GetComponent<MeshRenderer>();
+        renderer.sharedMaterial = GlowMaterial();
+        renderer.shadowCastingMode = ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+        var g = glow.AddComponent<HeadlampGlow>();
+        var so = new SerializedObject(g);
+        so.FindProperty("lamp").objectReferenceValue = lamp;
+        so.ApplyModifiedPropertiesWithoutUndo();
+    }
+
+    /// <summary>Additive glow material: a copy of the muzzle flash material (URP Particles/Unlit, additive) with a soft round texture.</summary>
+    private static Material GlowMaterial()
+    {
+        const string matPath = Folder + "/HeadlampGlow.mat", texPath = Folder + "/HeadlampGlow.png";
+        if (AssetDatabase.LoadAssetAtPath<Texture2D>(texPath) == null)
+        {
+            const int n = 64;
+            var tex = new Texture2D(n, n, TextureFormat.RGBA32, false);
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    float d = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), new Vector2(n, n) * 0.5f) / (n * 0.5f);
+                    float a = Mathf.Pow(Mathf.Clamp01(1f - d), 2.2f);
+                    tex.SetPixel(x, y, new Color(a, a, a, a));
+                }
+            File.WriteAllBytes(texPath, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(texPath);
+        }
+        var mat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
+        if (mat == null)
+        {
+            var source = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Weapons/MuzzleFlash.mat");
+            mat = source != null ? new Material(source) : new Material(Shader.Find("Universal Render Pipeline/Particles/Unlit"));
+            AssetDatabase.CreateAsset(mat, matPath);
+        }
+        var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
+        mat.SetTexture("_BaseMap", texture);
+        mat.mainTexture = texture;
+        mat.SetColor("_BaseColor", Color.white);
+        EditorUtility.SetDirty(mat);
+        return mat;
     }
 
     // ------------------------------------------------------------------ network manager

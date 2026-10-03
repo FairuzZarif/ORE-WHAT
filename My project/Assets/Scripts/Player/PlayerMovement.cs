@@ -70,6 +70,14 @@ public class PlayerMovement : MonoBehaviour
         if (crouch == null) crouch = GetComponent<PlayerCrouch>();
     }
 
+    // Switched back on (e.g. after a respawn): start standing still, not with the speed from before.
+    private void OnEnable()
+    {
+        horizontalVelocity = Vector3.zero;
+        verticalVelocity = 0f;
+        IsSprinting = false;
+    }
+
     private void Update()
     {
         Keyboard keyboard = Keyboard.current;

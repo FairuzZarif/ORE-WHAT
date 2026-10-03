@@ -72,6 +72,9 @@ public class FistsController : HeldItemController
     /// <summary>Never blocks switching: selecting an item just cancels the punch.</summary>
     public override bool IsBusy => false;
     public override Vector3 CameraRotation => new Vector3(-kick * 0.6f, (lastWasRight ? -1f : 1f) * kick * 0.4f, 0f);
+    public override float PlayerDamage => damage;
+    public override float AttackRange => range + radius;
+    public override float AttackInterval => cooldown;
     /// <summary>True while either hand is moving.</summary>
     public bool IsPunching => right.phase != Phase.Idle || left.phase != Phase.Idle;
     /// <summary>Raised on every punch (right hand = true), for sounds / third-person animation later.</summary>
@@ -109,6 +112,7 @@ public class FistsController : HeldItemController
         if (hand.phase != Phase.Idle) return false;
 
         lastPunchTime = Time.time;
+        BeginAttack(); // this punch can damage a given player once
         rightHandNext = !useRight;
         lastWasRight = useRight;
         hand.phase = Phase.Raise;
@@ -186,6 +190,11 @@ public class FistsController : HeldItemController
 
         RaycastHit hit = hits[best];
         var target = hit.collider.GetComponentInParent<IDamageable>();
+        // The sphere is forgiving and may touch a shoulder first; if the aim line itself lands on the same target,
+        // use that point instead, so the body part hit is the one aimed at (head, chest...).
+        if (target != null && Physics.Raycast(eye.position, eye.forward, out RaycastHit aimed, range + radius, hitLayers, QueryTriggerInteraction.Ignore)
+            && aimed.collider.GetComponentInParent<IDamageable>() == target)
+            hit = aimed;
         if (target != null) target.TakeDamage(damage, hit);
         // (distance 0 = it was already touching the fist's sphere: still a hit, but Unity gives no hit point)
         Vector3 point = hit.distance > 0f ? hit.point : hit.collider.ClosestPoint(eye.position);

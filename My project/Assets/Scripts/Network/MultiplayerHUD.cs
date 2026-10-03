@@ -19,6 +19,7 @@ public class MultiplayerHUD : MonoBehaviour
     private int players;
     private float nextCount;
     private bool cursorFreeThisFrame;
+    private PlayerDeath localDeath;
 
     private void Awake()
     {
@@ -55,6 +56,8 @@ public class MultiplayerHUD : MonoBehaviour
         // Esc menu while the cursor is free. Clicks are taken on mouse DOWN: PlayerLook locks the cursor again on that
         // same click (in Update, before this), so a normal GUI.Button (which fires on mouse up) would never fire.
         if (!cursorFreeThisFrame && Cursor.lockState == CursorLockMode.Locked) return;
+        if (localDeath == null) localDeath = FindAnyObjectByType<PlayerDeath>();
+        if (localDeath != null && localDeath.IsDead) return; // the cursor is free for the death screen's button, not this menu
         var panel = new Rect(width * 0.5f - 200f, 1080f * 0.5f - 90f, 400f, 180f);
         GUI.Box(panel, GUIContent.none, box);
         if (Clicked(new Rect(panel.x + 30f, panel.y + 25f, 340f, 56f), "Copy join code"))
