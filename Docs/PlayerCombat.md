@@ -100,6 +100,25 @@ call `TakeDamage(amount, push, point)` or `IDamageable.TakeDamage`.)
 
 The remote body capsule shrinks with the synced crouch (1.8 → 1.3 m), so shots over a crouched head miss.
 
+## Bullet tracers
+
+Purely visual: the shot is still `WeaponController`'s camera ray (and the host's checks).
+
+* **Local:** `Fire` stores `LastShotEnd` (the ray's hit point, or origin + direction × range on a miss) and calls
+  `BulletTracers.Play(muzzle, end, rifle)`. The muzzle is the gun's `MuzzleFlash` (at `Attach_Muzzle`), moved to where
+  the first-person view is drawn (`FirstPersonPresentation.ToPresented`), so the streak leaves the barrel on screen.
+* **Others:** the existing `ShotRpc` now carries that end point (12 bytes; unreliable like before); each machine draws
+  the tracer from the muzzle of the gun copy in the shooter's hands (`RemotePlayerPresentation.Shot(end)`) to the same
+  end. Nothing is sent per frame.
+* **Look:** a thin warm streak (additive, HDR so the bloom gives a slight glow). Its head runs the whole path in
+  0.04–0.08 s (pistol) / 0.03–0.06 s (rifle); its tail trails 35% of the shot, clamped to 3–8 m (pistol) or 2.2–6 m
+  (rifle), then catches up and fades. Each end's width grows with its distance from the camera, so it stays a few pixels
+  wide near and far (pistol a bit wider and brighter than the rifle). Styles: `BulletTracers.PistolStyle/RifleStyle`.
+* **Budget:** one pool of at most 24 line renderers (oldest reused); a finished tracer is just switched off. A
+  30-round rifle magazine fired one shot per frame peaked at 5 active tracers in a pool of 6, all gone 0.5 s later.
+* Material: `Assets/Resources/BulletTracer.mat` (+ `.png`), made by **Ore What → Add Weapon Tracers** (also part of
+  Add Player Combat).
+
 ## Friendly fire
 
 There are no teams, so `CombatSettings.friendlyFire` is **on** (everyone can hurt everyone). Turn it off in

@@ -173,11 +173,15 @@ public class RemotePlayerPresentation : MonoBehaviour
         actionRestarted = true;
     }
 
-    public void Shot()
+    /// <summary>The player fired: kick, muzzle flash, sound, and a tracer from this gun's muzzle to where the shot ended.</summary>
+    public void Shot(Vector3 end)
     {
         shotTime = 0f;
         if (held == null || held.visual == null) return;
-        foreach (ParticleSystem ps in held.visual.GetComponentsInChildren<ParticleSystem>(true)) ps.Emit(2);
+        ParticleSystem[] flashes = held.visual.GetComponentsInChildren<ParticleSystem>(true);
+        foreach (ParticleSystem ps in flashes) ps.Emit(2);
+        // The muzzle flash sits on the muzzle (copied from the first-person gun), so the tracer starts there.
+        BulletTracers.Play(flashes.Length > 0 ? flashes[0].transform.position : held.visual.transform.position, end, held.rifleSounds);
         foreach (Light l in held.visual.GetComponentsInChildren<Light>(true)) l.enabled = true;
         muzzleLightTimer = 0.05f;
         audioSource.pitch = UnityEngine.Random.Range(0.95f, 1.05f);

@@ -94,7 +94,7 @@ public static class CharacterSetupTool
         Debug.Log("[Ore What] Character animations updated.");
     }
 
-    private class Clips { public AnimationClip Idle, Walk, WalkBack, Run, Jump, Fall, Land; }
+    private class Clips { public AnimationClip Idle, Walk, WalkBack, Run, Jump, Fall, Land, StrafeLeft, StrafeRight; }
 
     /// <summary>Imports all clips, then builds the controller (only if it doesn't exist yet) and upgrades it.</summary>
     private static AnimatorController SetUpAnimations(Avatar avatar)
@@ -115,6 +115,10 @@ public static class CharacterSetupTool
             Jump = ImportClip("Jumping Up", avatar, false, true),
             Fall = ImportClip("Falling Idle", avatar, true, true),
             Land = ImportClip("Falling To Landing", avatar, false, false, LandTouchdownFrame),
+            // Sideways (Mixamo "Jog Strafe"). Their sideways travel is taken out of the pose (not baked in): the Left one
+            // was downloaded with root motion and would otherwise slide 0.67 m per step and snap back.
+            StrafeLeft = ImportClip("Jog Strafe Left", avatar, true, false, -1f, bakeXZ: false),
+            StrafeRight = ImportClip("Jog Strafe Right", avatar, true, false, -1f, bakeXZ: false),
         };
         var ac = AssetDatabase.LoadAssetAtPath<AnimatorController>(ControllerPath);
         if (ac == null) ac = BuildController(clips);
@@ -122,14 +126,18 @@ public static class CharacterSetupTool
         return ac;
     }
 
-    /// <summary>Finds the clip file whose name ends in "@[name].fbx" (e.g. "CorporateMiner (4)@Walking.fbx"), configures it and returns its clip, or null.</summary>
-    private static AnimationClip ImportClip(string name, Avatar avatar, bool loop, bool heightFromFeet, float firstFrame = -1f)
+    /// <summary>
+    /// Finds the clip file named "...@[name].fbx" (e.g. "CorporateMiner (4)@Walking.fbx") or just "[name].fbx", configures
+    /// it and returns its clip (renamed to [name]), or null.
+    /// </summary>
+    private static AnimationClip ImportClip(string name, Avatar avatar, bool loop, bool heightFromFeet, float firstFrame = -1f, bool bakeXZ = true)
     {
         foreach (string guid in AssetDatabase.FindAssets("t:Model", new[] { "Assets" }))
         {
             string path = AssetDatabase.GUIDToAssetPath(guid);
-            if (!path.EndsWith("@" + name + ".fbx", System.StringComparison.OrdinalIgnoreCase)) continue;
-            ConfigureImport(path, avatar, loop, heightFromFeet, firstFrame);
+            if (!path.EndsWith("@" + name + ".fbx", System.StringComparison.OrdinalIgnoreCase) &&
+                !path.EndsWith("/" + name + ".fbx", System.StringComparison.OrdinalIgnoreCase)) continue;
+            ConfigureImport(path, avatar, loop, heightFromFeet, firstFrame, bakeXZ, name);
             return LoadClip(path);
         }
         Debug.LogWarning($"[Ore What] No '@{name}.fbx' animation found; its state uses a placeholder.");
@@ -144,7 +152,11 @@ public static class CharacterSetupTool
     }
 
     /// <summary>Humanoid import. sourceAvatar null = create the avatar from this model (the skinned character).</summary>
-    private static void ConfigureImport(string path, Avatar sourceAvatar, bool loop, bool heightFromFeet = false, float firstFrame = -1f)
+    /// bakeXZ false = the clip's sideways/forward travel becomes root motion (unused: the CharacterController moves the
+    /// player) instead of moving the body away from its root; needed for clips that weren't downloaded "In Place".
+    /// clipName renames Mixamo's generic "mixamo.com" clip.
+    private static void ConfigureImport(string path, Avatar sourceAvatar, bool loop, bool heightFromFeet = false, float firstFrame = -1f,
+                                        bool bakeXZ = true, string clipName = null)
     {
         var imp = (ModelImporter)AssetImporter.GetAtPath(path);
         imp.animationType = ModelImporterAnimationType.Human;
@@ -158,7 +170,8 @@ public static class CharacterSetupTool
             // Bake all root movement into the pose: the player's CharacterController does the moving.
             c.lockRootRotation = true;
             c.lockRootHeightY = true;
-            c.lockRootPositionXZ = true;
+            c.lockRootPositionXZ = bakeXZ;
+            if (clipName != null && c.name == "mixamo.com") c.name = clipName;
             c.keepOriginalOrientation = true;
             c.keepOriginalPositionY = !heightFromFeet; // Based Upon: Original, or Feet (feet stay on the ground)
             c.heightFromFeet = heightFromFeet;
@@ -282,6 +295,7 @@ public static class CharacterSetupTool
             back.motion = clips.WalkBack;
             UsePlaybackParameter(back, "WalkBackPlayback");
         }
+        AddStrafing(ac, clips, walk, runS, back);
         TuneStopping(idle, walk, runS, back);
         if (clips.Land != null) land.motion = clips.Land;
         foreach (AnimatorStateTransition t in land.transitions)
@@ -289,6 +303,97 @@ public static class CharacterSetupTool
 
         EditorUtility.SetDirty(ac);
         AssetDatabase.SaveAssets();
+    }
+
+    /// <summary>
+    /// Sideways movement: Walk, Run and Walk Backward keep their states, transitions and playback parameters, but each
+    /// now plays a 2D direction blend (Freeform Directional, MoveX = right, MoveY = forward, the movement direction
+    /// relative to the facing, from CharacterAnimator): its forward clip at (0, 1), Walking Backward at (0, -1) and the
+    /// jog strafes at (-1, 0) / (1, 0). W+A, S+D... blend the two nearest clips. The strafes serve walking and running
+    /// sideways (only one speed of strafe exists); CharacterAnimator scales the playback to the real speed and direction.
+    /// Without the strafe clips nothing changes.
+    /// </summary>
+    private static void AddStrafing(AnimatorController ac, Clips clips, AnimatorState walk, AnimatorState runS, AnimatorState back)
+    {
+        if (clips.StrafeLeft == null || clips.StrafeRight == null || clips.WalkBack == null) return;
+        foreach (string p in new[] { "MoveX", "MoveY" })
+            if (System.Array.FindIndex(ac.parameters, x => x.name == p) < 0)
+            {
+                ac.AddParameter(p, AnimatorControllerParameterType.Float);
+                if (p == "MoveY")
+                {
+                    AnimatorControllerParameter[] ps = ac.parameters;
+                    ps[ps.Length - 1].defaultFloat = 1f; // straight ahead until told otherwise
+                    ac.parameters = ps;
+                }
+            }
+        if (walk != null && clips.Walk != null) walk.motion = DirectionTree(ac, "Walk (directions)", clips.Walk, clips.WalkBack, clips.StrafeLeft, clips.StrafeRight, clips.Walk);
+        if (runS != null && clips.Run != null) runS.motion = DirectionTree(ac, "Run (directions)", clips.Run, clips.WalkBack, clips.StrafeLeft, clips.StrafeRight, clips.Run);
+        if (back != null && clips.Walk != null) back.motion = DirectionTree(ac, "Walk Backward (directions)", clips.Walk, clips.WalkBack, clips.StrafeLeft, clips.StrafeRight, clips.WalkBack);
+    }
+
+    /// <summary>
+    /// A 2D directional blend tree stored inside the controller asset (reused by name, so re-running doesn't pile up
+    /// copies). A blend plays its clips in step by cycle fraction, so every clip gets a cycle offset that puts its LEFT
+    /// foot down at the same moment as the state's main clip (main): otherwise a diagonal mixes one clip's left step
+    /// with another's right step and the feet shuffle (measured: Jog Strafe Right plants the left foot half a cycle
+    /// away from Walking).
+    /// </summary>
+    private static BlendTree DirectionTree(AnimatorController ac, string name, AnimationClip forward, AnimationClip backward,
+                                           AnimationClip left, AnimationClip right, AnimationClip main)
+    {
+        BlendTree tree = null;
+        foreach (Object o in AssetDatabase.LoadAllAssetsAtPath(ControllerPath))
+            if (o is BlendTree t && t.name == name) tree = t;
+        if (tree == null)
+        {
+            tree = new BlendTree { name = name, hideFlags = HideFlags.HideInHierarchy };
+            AssetDatabase.AddObjectToAsset(tree, ac);
+        }
+        tree.blendType = BlendTreeType.FreeformDirectional2D;
+        tree.blendParameter = "MoveX";
+        tree.blendParameterY = "MoveY";
+        tree.useAutomaticThresholds = false;
+        tree.children = new ChildMotion[0];
+        tree.AddChild(forward, new Vector2(0f, 1f));
+        tree.AddChild(backward, new Vector2(0f, -1f));
+        tree.AddChild(left, new Vector2(-1f, 0f));
+        tree.AddChild(right, new Vector2(1f, 0f));
+        float mainPhase = LeftFootDownPhase(main);
+        ChildMotion[] children = tree.children; // a copy: edit, then assign back
+        for (int i = 0; i < children.Length; i++)
+            children[i].cycleOffset = Mathf.Repeat(LeftFootDownPhase((AnimationClip)children[i].motion) - mainPhase, 1f);
+        tree.children = children;
+        EditorUtility.SetDirty(tree);
+        return tree;
+    }
+
+    /// <summary>When (fraction of its cycle) a locomotion clip has its left foot lowest, sampled on the character.</summary>
+    private static float LeftFootDownPhase(AnimationClip clip)
+    {
+        var model = Object.Instantiate(AssetDatabase.LoadAssetAtPath<GameObject>(ModelPath));
+        model.hideFlags = HideFlags.HideAndDontSave;
+        try
+        {
+            Transform foot = model.GetComponent<Animator>().GetBoneTransform(HumanBodyBones.LeftFoot);
+            float lowest = float.MaxValue, phase = 0f;
+            AnimationMode.StartAnimationMode();
+            for (int i = 0; i < 200; i++)
+            {
+                float u = i / 200f;
+                AnimationMode.BeginSampling();
+                AnimationMode.SampleAnimationClip(model, clip, clip.length * u);
+                AnimationMode.EndSampling();
+                float y = model.transform.InverseTransformPoint(foot.position).y;
+                if (y < lowest) { lowest = y; phase = u; }
+            }
+            return phase;
+        }
+        finally
+        {
+            AnimationMode.StopAnimationMode();
+            Object.DestroyImmediate(model);
+        }
     }
 
     /// <summary>

@@ -217,6 +217,8 @@ public class WeaponController : HeldItemController
     public Vector2 AimRecoil => aimRecoil;
     /// <summary>Direction of the last shot fired (for testing/debugging).</summary>
     public Vector3 LastShotDirection { get; private set; }
+    /// <summary>Where the last shot stopped (hit point, or the end of the range on a miss). Other players' tracers end here.</summary>
+    public Vector3 LastShotEnd { get; private set; }
     /// <summary>Switching or throwing is always allowed: it simply cancels a reload.</summary>
     public override bool IsBusy => false;
     public override Vector3 CameraRotation => cameraRot;
@@ -461,6 +463,9 @@ public class WeaponController : HeldItemController
             if (best < 0 || hits[i].distance < hits[best].distance) best = i;
         }
         if (best >= 0) RegisterHit(hits[best], ray.direction);
+        // Where this shot stopped: the hit, or the end of its range. The tracer (here and for other players) ends there.
+        LastShotEnd = best >= 0 ? hits[best].point : ray.origin + ray.direction * range;
+        PlayTracer();
 
         // Feedback.
         recoil = Mathf.Min(recoil + 1f, maxRecoilStack);
@@ -475,6 +480,21 @@ public class WeaponController : HeldItemController
         }
         ShotFired?.Invoke();
     }
+
+    /// <summary>
+    /// The visual tracer of the shot just fired, from the muzzle as it's drawn on screen (the first-person view is shown
+    /// offset from its real pose, FirstPersonPresentation) to the shot's real end point. Changes nothing about the shot.
+    /// </summary>
+    private void PlayTracer()
+    {
+        Transform muzzle = muzzleFlash != null ? muzzleFlash.transform : weaponRoot;
+        if (muzzle == null) return;
+        if (presentation == null && playerCamera != null) presentation = playerCamera.GetComponent<FirstPersonPresentation>();
+        Vector3 start = presentation != null ? presentation.ToPresented(muzzle.position) : muzzle.position;
+        BulletTracers.Play(start, LastShotEnd, automatic);
+    }
+
+    private FirstPersonPresentation presentation;
 
     /// <summary>Trigger pulled on an empty magazine: just a click (rate-limited), no shot, no auto-reload.</summary>
     private void DryFire()
