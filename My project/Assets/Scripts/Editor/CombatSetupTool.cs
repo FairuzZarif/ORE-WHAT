@@ -44,6 +44,7 @@ public static class CombatSetupTool
         if (player.GetComponent<DamageFlash>() == null) Undo.AddComponent<DamageFlash>(player);
         if (player.GetComponent<HitConfirmFeedback>() == null) Undo.AddComponent<HitConfirmFeedback>(player);
         EnsureSplatMaterial();
+        EnsureTracerMaterial();
 
         Transform visual = player.transform.Find("CharacterVisual");
         Animator body = visual != null ? visual.GetComponentInChildren<Animator>(true) : null;
@@ -188,6 +189,64 @@ public static class CombatSetupTool
         mat.SetOverrideTag("RenderType", "Transparent");
         mat.renderQueue = (int)RenderQueue.Transparent;
         AssetDatabase.CreateAsset(mat, BloodMaterialPath);
+        return mat;
+    }
+
+    // ------------------------------------------------------------------ bullet tracers
+
+    private const string TracerMaterialPath = "Assets/Resources/BulletTracer.mat";
+    private const string TracerTexturePath = "Assets/Resources/BulletTracer.png";
+
+    [MenuItem("Ore What/Add Weapon Tracers")]
+    public static void TracerMenu() => EnsureTracerMaterial();
+
+    /// <summary>
+    /// The tracer streak's material (BulletTracers loads it from Resources): additive URP particle material, like the
+    /// muzzle flash, with a soft bright core across the line's width. Its colour comes from the line (the guns' styles).
+    /// </summary>
+    public static Material EnsureTracerMaterial()
+    {
+        ItemSetupTool.EnsureFolder("Assets", "Resources");
+        if (AssetDatabase.LoadAssetAtPath<Texture2D>(TracerTexturePath) == null)
+        {
+            const int w = 8, h = 32;
+            var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
+            for (int y = 0; y < h; y++)
+            {
+                float v = (y + 0.5f) / h * 2f - 1f;                       // across the width
+                float core = Mathf.Exp(-v * v * 18f), glow = Mathf.Exp(-v * v * 4f) * 0.35f;
+                float a = Mathf.Clamp01(core + glow);
+                for (int x = 0; x < w; x++) tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+            }
+            System.IO.File.WriteAllBytes(TracerTexturePath, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(TracerTexturePath, ImportAssetOptions.ForceUpdate);
+            var importer = (TextureImporter)AssetImporter.GetAtPath(TracerTexturePath);
+            importer.alphaIsTransparency = true;
+            importer.mipmapEnabled = false;
+            importer.wrapMode = TextureWrapMode.Clamp;
+            importer.SaveAndReimport();
+        }
+        var mat = AssetDatabase.LoadAssetAtPath<Material>(TracerMaterialPath);
+        // Over 1 (HDR): the scene's post-processing bloom gives the streak a slight glow. The line's colour tints it.
+        Color tint = new Color(2.2f, 2.0f, 1.7f, 1f);
+        if (mat != null) { mat.SetColor("_BaseColor", tint); EditorUtility.SetDirty(mat); return mat; }
+        mat = new Material(Shader.Find("Universal Render Pipeline/Particles/Unlit")) { name = "BulletTracer" };
+        mat.SetTexture("_BaseMap", AssetDatabase.LoadAssetAtPath<Texture2D>(TracerTexturePath));
+        mat.SetColor("_BaseColor", tint);
+
+        mat.SetFloat("_Surface", 1f);   // transparent
+        mat.SetFloat("_Blend", 2f);     // additive
+        mat.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+        mat.SetFloat("_DstBlend", (float)BlendMode.One);
+        mat.SetFloat("_SrcBlendAlpha", (float)BlendMode.One);
+        mat.SetFloat("_DstBlendAlpha", (float)BlendMode.One);
+        mat.SetFloat("_ZWrite", 0f);
+        mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        mat.SetOverrideTag("RenderType", "Transparent");
+        mat.renderQueue = (int)RenderQueue.Transparent;
+        AssetDatabase.CreateAsset(mat, TracerMaterialPath);
+        AssetDatabase.SaveAssets();
         return mat;
     }
 

@@ -135,7 +135,10 @@ public class CharacterRagdoll : MonoBehaviour
     /// How far (metres) a point is from a body part, measured on the bones (no colliders needed, so it also works on a
     /// body without hitboxes, e.g. the host's own player). 0 = on / inside it.
     /// </summary>
-    public float DistanceToZone(BodyZone zone, Vector3 point)
+    public float DistanceToZone(BodyZone zone, Vector3 point) => Mathf.Max(0f, SignedDistance(zone, point));
+
+    /// <summary>Like DistanceToZone, but negative inside the part (how deep), so overlapping parts can be told apart.</summary>
+    private float SignedDistance(BodyZone zone, Vector3 point)
     {
         if (animator == null) return float.MaxValue;
         Transform B(HumanBodyBones b) => animator.GetBoneTransform(b);
@@ -147,26 +150,26 @@ public class CharacterRagdoll : MonoBehaviour
         {
             case BodyZone.Head:
                 Vector3 centre = head.position + (head.position - neck.position).normalized * 0.12f * s;
-                return Mathf.Max(0f, Vector3.Distance(point, centre) - 0.14f * s);
+                return Vector3.Distance(point, centre) - 0.14f * s;
             case BodyZone.Chest:
-                return Mathf.Max(0f, Segment(point, hips.position - (neck.position - hips.position).normalized * 0.1f * s, neck.position) - 0.18f * s);
+                return Segment(point, hips.position, neck.position) - 0.17f * s; // hips up to the neck (the thighs are the legs)
             case BodyZone.Arms:
-                return Mathf.Max(0f, Mathf.Min(Limb(point, HumanBodyBones.LeftUpperArm, HumanBodyBones.LeftLowerArm, HumanBodyBones.LeftHand, 1.3f),
-                                               Limb(point, HumanBodyBones.RightUpperArm, HumanBodyBones.RightLowerArm, HumanBodyBones.RightHand, 1.3f)) - 0.06f * s);
+                return Mathf.Min(Limb(point, HumanBodyBones.LeftUpperArm, HumanBodyBones.LeftLowerArm, HumanBodyBones.LeftHand, 1.3f),
+                                               Limb(point, HumanBodyBones.RightUpperArm, HumanBodyBones.RightLowerArm, HumanBodyBones.RightHand, 1.3f)) - 0.06f * s;
             default:
-                return Mathf.Max(0f, Mathf.Min(Limb(point, HumanBodyBones.LeftUpperLeg, HumanBodyBones.LeftLowerLeg, HumanBodyBones.LeftFoot, 1.15f),
-                                               Limb(point, HumanBodyBones.RightUpperLeg, HumanBodyBones.RightLowerLeg, HumanBodyBones.RightFoot, 1.15f)) - 0.08f * s);
+                return Mathf.Min(Limb(point, HumanBodyBones.LeftUpperLeg, HumanBodyBones.LeftLowerLeg, HumanBodyBones.LeftFoot, 1.15f),
+                                               Limb(point, HumanBodyBones.RightUpperLeg, HumanBodyBones.RightLowerLeg, HumanBodyBones.RightFoot, 1.15f)) - 0.08f * s;
         }
     }
 
-    /// <summary>The body part nearest to a point (head first when two are equally near).</summary>
+    /// <summary>The body part nearest to a point; inside two overlapping parts, the one it is deeper in.</summary>
     public BodyZone ClosestZone(Vector3 point)
     {
         BodyZone best = BodyZone.Chest;
         float bestDistance = float.MaxValue;
         foreach (BodyZone z in new[] { BodyZone.Head, BodyZone.Chest, BodyZone.Arms, BodyZone.Legs })
         {
-            float d = DistanceToZone(z, point);
+            float d = SignedDistance(z, point); // inside two parts: the one it is deeper in
             if (d < bestDistance - 0.001f) { bestDistance = d; best = z; }
         }
         return best;

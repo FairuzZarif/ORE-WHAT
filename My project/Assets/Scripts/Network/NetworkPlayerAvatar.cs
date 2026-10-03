@@ -86,6 +86,9 @@ public class NetworkPlayerAvatar : NetworkBehaviour
     private static readonly int GroundedId = Animator.StringToHash("Grounded");
     private static readonly int VerticalSpeedId = Animator.StringToHash("VerticalSpeed");
     private static readonly int JumpId = Animator.StringToHash("Jump");
+    private static readonly int MoveXId = Animator.StringToHash("MoveX");
+    private static readonly int MoveYId = Animator.StringToHash("MoveY");
+    private Vector2 shownMove = Vector2.up; // the body's movement direction relative to its facing (strafe blend)
 
     // Owner: the real (scene) player this avatar copies.
     private PlayerMovement player;
@@ -334,7 +337,13 @@ public class NetworkPlayerAvatar : NetworkBehaviour
     // The local lamp has already switched (no delay for its owner); the others follow.
     private void OnLocalHeadlamp(bool on) { if (IsSpawned && IsOwner) headlampOn.Value = on; }
     private void OnLocalPunch(bool right) { if (IsSpawned) PunchRpc(right); }
-    private void OnLocalShot() { if (IsSpawned) ShotRpc(); }
+    // The shot's end point goes along so the others' tracer ends where the real shot did (nothing else about the shot).
+    private void OnLocalShot()
+    {
+        if (!IsSpawned) return;
+        var gun = equipment != null ? equipment.ActiveController as WeaponController : null;
+        ShotRpc(gun != null ? gun.LastShotEnd : transform.position + transform.forward * 50f);
+    }
     private void OnLocalReload(float duration) { if (IsSpawned) ReloadRpc(duration); }
     private void OnLocalSwing(int kind, float impact, float end) { if (IsSpawned) SwingRpc((byte)kind, impact, end); }
 
@@ -346,7 +355,7 @@ public class NetworkPlayerAvatar : NetworkBehaviour
     }
 
     [Rpc(SendTo.NotMe)] private void PunchRpc(bool right) { if (presentation != null) presentation.Punch(right); }
-    [Rpc(SendTo.NotMe, Delivery = RpcDelivery.Unreliable)] private void ShotRpc() { if (presentation != null) presentation.Shot(); }
+    [Rpc(SendTo.NotMe, Delivery = RpcDelivery.Unreliable)] private void ShotRpc(Vector3 end) { if (presentation != null && !isDead) presentation.Shot(end); }
     [Rpc(SendTo.NotMe)] private void ReloadRpc(float duration) { if (presentation != null) presentation.Reload(duration); }
     [Rpc(SendTo.NotMe)] private void SwingRpc(byte kind, float impact, float end) { if (presentation != null) presentation.Swing(kind, impact, end); }
 
@@ -455,6 +464,16 @@ public class NetworkPlayerAvatar : NetworkBehaviour
             body.SetFloat(WalkBackPlaybackId, shown.walkBackPlayback);
             body.SetFloat(VerticalSpeedId, shown.verticalSpeed);
             body.SetBool(GroundedId, s.grounded);
+            // Strafing: which way the body moves relative to where it faces, worked out here from its movement
+            // (nothing extra is sent). Kept as it was while (nearly) standing still.
+            Vector2 local = new Vector2(Vector3.Dot(remoteVelocity, transform.right), Vector3.Dot(remoteVelocity, transform.forward));
+            if (local.magnitude > 0.5f && s.speed > 0.5f)
+            {
+                Vector3 turned = Vector3.Slerp(new Vector3(shownMove.x, 0f, shownMove.y), new Vector3(local.x, 0f, local.y).normalized, k);
+                shownMove = new Vector2(turned.x, turned.z).normalized;
+            }
+            body.SetFloat(MoveXId, shownMove.x);
+            body.SetFloat(MoveYId, shownMove.y);
             if (s.jumps != shownJumps) { shownJumps = s.jumps; body.SetTrigger(JumpId); }
         }
         if (crouchPose != null) crouchPose.ExternalAmount = crouch;

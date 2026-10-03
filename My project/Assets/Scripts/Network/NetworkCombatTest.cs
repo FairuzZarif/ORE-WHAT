@@ -29,12 +29,14 @@ public class NetworkCombatTest : MonoBehaviour
     private string role, shots;
     private int shotCount;
     private float lookPitch, strafeSpeed;
+    private Vector2 walkDir; // test walking: direction relative to the facing (x right, y forward) at walkSpeed m/s
+    private float walkSpeed;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Boot()
     {
         string role = Arg("-mptest");
-        if (System.Array.IndexOf(new[] { "chost", "cclient", "clate", "phost", "pclient", "pclient2", "plate", "zhost", "zclient" }, role) < 0) return;
+        if (System.Array.IndexOf(new[] { "chost", "cclient", "clate", "phost", "pclient", "pclient2", "plate", "zhost", "zclient", "shost", "sclient" }, role) < 0) return;
         var go = new GameObject("NetworkCombatTest");
         DontDestroyOnLoad(go);
         var t = go.AddComponent<NetworkCombatTest>();
@@ -64,6 +66,8 @@ public class NetworkCombatTest : MonoBehaviour
         else if (role == "pclient" || role == "pclient2") yield return RunPolishClient(isA: role == "pclient");
         else if (role == "zhost") yield return RunZoneHost();
         else if (role == "zclient") yield return RunZoneClient();
+        else if (role == "shost") yield return RunStrafeHost();
+        else if (role == "sclient") yield return RunStrafeClient();
         else yield return RunPolishLate();
         Log("DONE");
         Application.Quit();
@@ -506,7 +510,7 @@ public class NetworkCombatTest : MonoBehaviour
             AimAtPoint(t.point()); yield return null; AimAtPoint(t.point()); Fire();
             yield return new WaitForSeconds(0.6f);
             Log($"RESULT pistol {t.name}: {before} -> {aHealth.Health} (-{before - aHealth.Health}; expect -{20f * CombatSettings.Current.Multiplier(t.zone)}) " +
-                $"host says {HitConfirmFeedback.LastZone} number {HitConfirmFeedback.LastNumber}");
+                $"host says {HitConfirmFeedback.LastZone} number {HitConfirmFeedback.LastNumber} | tracer {BulletTracers.LastStart:F2} -> {BulletTracers.LastEnd:F2}");
         }
 
         yield return PlaceNear(a.transform, 1.1f);
@@ -537,7 +541,7 @@ public class NetworkCombatTest : MonoBehaviour
             Fire(); shots++;
             yield return new WaitForSeconds(0.35f);
             Log($"rifle shot {shots}: aim ray hits {(seen.collider != null ? seen.collider.name : "nothing")} at {seen.point:F2}, head centre {HeadCentre(body):F2}; " +
-                $"{before} -> {aHealth.Health}, host says {HitConfirmFeedback.LastZone} {HitConfirmFeedback.LastNumber}");
+                $"{before} -> {aHealth.Health}, host says {HitConfirmFeedback.LastZone} {HitConfirmFeedback.LastNumber} | tracer end {BulletTracers.LastEnd:F2}");
         }
         yield return new WaitForSeconds(0.3f);
         Log($"RESULT rifle headshots from {start}: dead {aHealth.IsDead} after {shots} shots, headshots +{HitConfirmFeedback.HeadshotsConfirmed - heads} " +
@@ -557,6 +561,7 @@ public class NetworkCombatTest : MonoBehaviour
         NetworkPlayerAvatar host = Others().First(o => o.OwnerClientId == NetworkManager.ServerClientId);
         var hostHealth = host.GetComponent<NetworkPlayerHealth>();
         var hostBody = host.GetComponentInChildren<CharacterRagdoll>(true);
+        StartCoroutine(WatchRemoteTracers(host));
         Me().GetComponent<PlayerAttributes>().HealthChanged += (h, m) => Log($"own health now {h}");
         yield return new WaitForSeconds(2f);
         Log($"hitboxes on the host's body here: {hostBody.GetComponentsInChildren<Collider>().Count(c => c.enabled)} enabled, head layer {hostBody.Head.gameObject.layer}");
@@ -575,6 +580,93 @@ public class NetworkCombatTest : MonoBehaviour
         yield return WaitFor(() => !death.IsDead, 12f);
         yield return Place(new Vector3(490f, 0f, 812f), 270f);
         yield return WaitFor(() => SceneManager.GetActiveScene().name == "MainMenu", 240f);
+    }
+
+    // ================================================================== strafing seen by others (-mptest shost|sclient)
+
+    private static readonly (string name, Vector2 dir)[] StrafeCases =
+    {
+        ("A", new Vector2(-1f, 0f)), ("D", new Vector2(1f, 0f)), ("WA", new Vector2(-1f, 1f).normalized), ("WD", new Vector2(1f, 1f).normalized),
+        ("SA", new Vector2(-1f, -1f).normalized), ("SD", new Vector2(1f, -1f).normalized), ("W", new Vector2(0f, 1f)), ("S", new Vector2(0f, -1f)),
+    };
+
+    private IEnumerator RunStrafeHost()
+    {
+        Press("HostButton");
+        yield return WaitFor(InGame, 60f);
+        yield return Place(new Vector3(484f, 0f, 812f), 90f);
+        Log("HOST_READY");
+        yield return WaitFor(() => Others().Any(), 180f);
+        NetworkPlayerAvatar a = Other();
+        Animator body = a.GetComponentInChildren<Animator>(true);
+        var presentation = a.GetComponent<RemotePlayerPresentation>();
+        bool shotLeft = false, shotRight = false;
+        float end = Time.time + 60f;
+        string last = "";
+        while (Time.time < end && Others().Any())
+        {
+            float speed = body.GetFloat("Speed"), mx = body.GetFloat("MoveX"), my = body.GetFloat("MoveY");
+            if (speed > 3f)
+            {
+                AnimatorStateInfo st = body.GetCurrentAnimatorStateInfo(0);
+                string state = new[] { "Idle", "Walk", "Run", "Walk Backward", "Jump", "Fall", "Land" }.FirstOrDefault(n => st.IsName(n)) ?? "other";
+                string line = $"client body: MoveX {mx:F2} MoveY {my:F2} state {state} speed {speed:F1} held {HeldName(a) ?? "none"} shotTime {presentation.ShotTime:F2} reload {presentation.ReloadProgress:F2}";
+                string key = $"{Mathf.Round(mx * 2f)}/{Mathf.Round(my * 2f)}/{state}";
+                if (key != last) { Log("RESULT " + line); last = key; } // one line per direction/state change
+                if (!shotLeft && mx < -0.95f) { shotLeft = true; yield return Capture("host_sees_client_strafe_left", a.transform); }
+                if (!shotRight && mx > 0.95f) { shotRight = true; yield return Capture("host_sees_client_strafe_right", a.transform); }
+            }
+            yield return new WaitForSeconds(0.1f);
+        }
+        NetworkSessionManager.Instance.Leave();
+        yield return new WaitForSeconds(2f);
+    }
+
+    private IEnumerator RunStrafeClient()
+    {
+        yield return Join();
+        Vector3 start = new Vector3(490f, 0f, 812f);
+        yield return Place(start, 270f);
+        Log("CLIENT_READY");
+        Equip("Pistol");
+        yield return new WaitForSeconds(3f);
+        Animator mine = Me().GetComponentInChildren<CharacterAnimator>().GetComponent<Animator>();
+        foreach (var c in StrafeCases)
+        {
+            walkDir = c.dir; walkSpeed = 4f;
+            yield return new WaitForSeconds(0.9f);
+            var gun = Me().GetComponent<PlayerEquipment>().ActiveController as WeaponController;
+            if (c.name == "D") { Fire(); yield return new WaitForSeconds(0.25f); Fire(); }          // shoot while strafing right
+            if (c.name == "A" && gun != null) { Fire(); gun.StartReload(); }                         // reload while strafing left
+            yield return new WaitForSeconds(0.4f);
+            Log($"RESULT client {c.name,-2}: own MoveX {mine.GetFloat("MoveX"):F2} MoveY {mine.GetFloat("MoveY"):F2} speed {mine.GetFloat("Speed"):F1} facing {Me().transform.eulerAngles.y:F0}");
+            walkSpeed = 0f;
+            yield return new WaitForSeconds(0.6f);
+            yield return Place(start, 270f);
+            yield return new WaitForSeconds(0.4f);
+        }
+        Log("STRAFES_DONE");
+        yield return new WaitForSeconds(2f);
+        NetworkSessionManager.Instance.Leave();
+        yield return new WaitForSeconds(2f);
+    }
+
+    /// <summary>Logs every tracer this computer draws for the shooter's shots (start vs the shooter's gun hand, end).</summary>
+    private IEnumerator WatchRemoteTracers(NetworkPlayerAvatar shooter)
+    {
+        int seen = BulletTracers.Played;
+        Animator body = shooter.GetComponentInChildren<Animator>(true);
+        while (shooter != null)
+        {
+            if (BulletTracers.Played != seen)
+            {
+                seen = BulletTracers.Played;
+                Transform hand = body.GetBoneTransform(HumanBodyBones.RightHand);
+                Log($"remote tracer #{seen}: {BulletTracers.LastStart:F2} -> {BulletTracers.LastEnd:F2} (start {Vector3.Distance(BulletTracers.LastStart, hand.position):F2} m from the shooter's gun hand, " +
+                    $"active {BulletTracers.Active}, pool {BulletTracers.Pooled})");
+            }
+            yield return null;
+        }
     }
 
     private static Vector3 HeadCentre(CharacterRagdoll body)
@@ -641,7 +733,7 @@ public class NetworkCombatTest : MonoBehaviour
         PlayerMovement me = FindAnyObjectByType<PlayerMovement>();
         if (me == null) return;
         if (me.TryGetComponent(out CharacterController cc) && cc.enabled)
-            cc.Move((Vector3.down * 2f + me.transform.right * strafeSpeed) * Time.deltaTime);
+            cc.Move((Vector3.down * 2f + me.transform.right * strafeSpeed + (me.transform.right * walkDir.x + me.transform.forward * walkDir.y) * walkSpeed) * Time.deltaTime);
         var death = me.GetComponent<PlayerDeath>();
         Camera cam = me.GetComponentInChildren<Camera>();
         if (cam != null && (death == null || !death.IsDead)) cam.transform.localRotation = Quaternion.Euler(lookPitch, 0f, 0f);
