@@ -268,7 +268,9 @@ public class PlayerEquipment : MonoBehaviour
             position = eye.position + toSpawn.normalized * Mathf.Max(0f, hit.distance - 0.05f);
 
         inventory.RemoveFromSlot(EquippedSlotIndex, 1); // the view updates itself (empty slot = empty hands)
-        return ItemDrops.Spawn(item, 1, position, rotation, ThrowVelocity(), ThrowSpin());
+        DroppedItem dropped = ItemDrops.Spawn(item, 1, position, rotation, ThrowVelocity(), ThrowSpin());
+        if (dropped != null) GetComponent<ItemPickupInteractor>()?.PlayDropSound();
+        return dropped;
     }
 
     /// <summary>Throws the carried world ore with the same throw as an inventory item.</summary>

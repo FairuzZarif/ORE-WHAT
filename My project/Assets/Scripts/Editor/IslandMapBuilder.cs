@@ -967,6 +967,12 @@ public static class IslandMapBuilder
         entranceZone.transform.position = mouth + Vector3.up * 6f;
         entranceZone.Set(MapZone.ZoneKind.Landmark, 1, 10f, "The cave mouth.");
 
+        var ambience = cave.GetComponent<CaveAmbience>();
+        if (ambience == null) ambience = cave.gameObject.AddComponent<CaveAmbience>();
+        ambience.Configure(entranceZone.transform, mainTunnel,
+            AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/Ambience/forest_ambiance_loop.ogg"),
+            AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/Ambience/cave_ambiance_loop.ogg"));
+
         return $"Dressing: mouth at {mouth:F1}, {d.lamps} lamps ({d.lights} lights), {d.rocks} minable rocks." +
                (missed.Count > 0 ? " Couldn't place: " + string.Join(", ", missed) : "");
     }

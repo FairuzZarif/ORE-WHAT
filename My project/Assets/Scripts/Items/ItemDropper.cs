@@ -84,6 +84,8 @@ public class ItemDropper : MonoBehaviour
         if (inheritPlayerVelocity && controller != null) velocity += controller.velocity;
         Vector3 spin = Random.insideUnitSphere * randomTorque;
 
-        return ItemDrops.Spawn(item, removed, position, Random.rotation, velocity, spin);
+        DroppedItem dropped = ItemDrops.Spawn(item, removed, position, Random.rotation, velocity, spin);
+        if (dropped != null) GetComponent<ItemPickupInteractor>()?.PlayDropSound();
+        return dropped;
     }
 }

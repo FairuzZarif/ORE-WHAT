@@ -23,8 +23,6 @@ public class CameraEffects : MonoBehaviour
     [SerializeField, Range(0f, 0.3f)] private float rotationSmoothness = 0.08f;
 
     [Header("Walking")]
-    [Tooltip("Steps per second while walking.")]
-    [SerializeField, Min(0f)] private float walkBobFrequency = 1.8f;
     [Tooltip("Up/down movement per step, in metres.")]
     [SerializeField, Min(0f)] private float walkBobVerticalAmplitude = 0.025f;
     [Tooltip("Side-to-side movement (once per two steps), in metres.")]
@@ -33,7 +31,6 @@ public class CameraEffects : MonoBehaviour
     [SerializeField, Min(0f)] private float walkRotationAmount = 0.6f;
 
     [Header("Running")]
-    [SerializeField, Min(0f)] private float runBobFrequency = 2.5f;
     [SerializeField, Min(0f)] private float runBobVerticalAmplitude = 0.045f;
     [SerializeField, Min(0f)] private float runBobHorizontalAmplitude = 0.025f;
     [SerializeField, Min(0f)] private float runRotationAmount = 1.2f;
@@ -97,6 +94,7 @@ public class CameraEffects : MonoBehaviour
     [Header("References (auto-found if empty)")]
     [SerializeField] private PlayerMovement playerMovement;
     [SerializeField] private CharacterController characterController;
+    [SerializeField] private PlayerGait gait;
     [SerializeField] private PlayerMotionState motionState;
     [Tooltip("Used only when there's no PlayerEquipment; otherwise the held item's controller drives the swing reaction.")]
     [SerializeField] private PickaxeSwing pickaxeSwing;
@@ -110,11 +108,10 @@ public class CameraEffects : MonoBehaviour
     private Vector3 basePosition;
     private Quaternion baseRotation;
 
-    // Smoothed continuous layers (bob + idle + sway).
+    // Smoothed continuous layers (idle + sway); bob follows the shared footfall directly.
     private Vector3 smoothPos, smoothPosVel;
     private Vector3 smoothRot, smoothRotVel;
 
-    private float bobPhase;
     private float moveWeight, moveWeightVel;
     private float runBlend, runBlendVel;
     private float idleTime;
@@ -135,6 +132,7 @@ public class CameraEffects : MonoBehaviour
         baseRotation = transform.localRotation;
         if (playerMovement == null) playerMovement = GetComponentInParent<PlayerMovement>();
         if (characterController == null) characterController = GetComponentInParent<CharacterController>();
+        if (gait == null) gait = GetComponentInParent<PlayerGait>();
         if (motionState == null) motionState = GetComponentInParent<PlayerMotionState>();
         if (pickaxeSwing == null) pickaxeSwing = GetComponentInChildren<PickaxeSwing>();
         if (equipment == null) equipment = GetComponentInParent<PlayerEquipment>();
@@ -201,14 +199,13 @@ public class CameraEffects : MonoBehaviour
         moveWeight = Mathf.SmoothDamp(moveWeight, targetMove, ref moveWeightVel, 0.12f);
         runBlend = Mathf.SmoothDamp(runBlend, sprinting && horizontalSpeed > 0.5f ? 1f : 0f, ref runBlendVel, walkRunBlendTime);
 
-        float frequency = Mathf.Lerp(walkBobFrequency, runBobFrequency, runBlend);
         float vAmp = Mathf.Lerp(walkBobVerticalAmplitude, runBobVerticalAmplitude, runBlend);
         float hAmp = Mathf.Lerp(walkBobHorizontalAmplitude, runBobHorizontalAmplitude, runBlend);
         float rAmp = Mathf.Lerp(walkRotationAmount, runRotationAmount, runBlend);
 
-        // Only advance the step cycle while actually walking, so it resumes smoothly.
-        bobPhase += frequency * 2f * Mathf.PI * dt * Mathf.Clamp01(moveWeight * 1.5f);
-        if (bobPhase > 1000f) bobPhase -= 4f * Mathf.PI * 100f; // keep precision, stays in phase
+        // Both the camera and audio use the same ground-travel cycle and footfall.
+        float bobPhase = gait != null ? gait.PhaseRadians : 0f;
+        float bobWeight = gait != null ? moveWeight : 0f;
 
         // One head dip per step (vertical), one side-to-side sway per two steps (horizontal).
         // The small second harmonic makes each step land a little harder than it lifts.
@@ -216,11 +213,11 @@ public class CameraEffects : MonoBehaviour
         float vertical = step * 0.8f - Mathf.Abs(step) * 0.2f + Mathf.Sin(bobPhase * 2f + 0.7f) * 0.1f;
         float sideways = Mathf.Cos(bobPhase * 0.5f);
 
-        pos += new Vector3(sideways * hAmp, vertical * vAmp, 0f) * moveWeight;
-        rot += new Vector3(
+        Vector3 bobPos = new Vector3(sideways * hAmp, vertical * vAmp, 0f) * bobWeight;
+        Vector3 bobRot = new Vector3(
             step * rAmp * 0.25f,                         // tiny nod with each step
             Mathf.Sin(bobPhase * 0.5f) * rAmp * 0.15f,   // tiny look-around
-            -sideways * rAmp) * moveWeight;              // roll with the weight shift
+            -sideways * rAmp) * bobWeight;               // roll with the weight shift
 
         // --- Idle breathing (only when still and grounded) ---------------------------
         float idleWeight = grounded ? 1f - moveWeight : 0f;
@@ -249,8 +246,8 @@ public class CameraEffects : MonoBehaviour
         smoothPos = Vector3.SmoothDamp(smoothPos, pos, ref smoothPosVel, positionSmoothness);
         smoothRot = Vector3.SmoothDamp(smoothRot, rot, ref smoothRotVel, rotationSmoothness);
 
-        Vector3 finalPos = smoothPos;
-        Vector3 finalRot = smoothRot;
+        Vector3 finalPos = smoothPos + bobPos;
+        Vector3 finalRot = smoothRot + bobRot;
 
         // --- Jump / fall: state-based, follows the real vertical speed --------------------
         float yTarget = 0f, pitchTarget = 0f;

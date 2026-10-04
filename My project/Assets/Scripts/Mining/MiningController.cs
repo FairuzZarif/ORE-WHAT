@@ -39,6 +39,12 @@ public class MiningController : MonoBehaviour
     [Tooltip("Which layers the mining ray can hit. Leave on Everything unless you need to ignore something.")]
     [SerializeField] private LayerMask hitLayers = ~0;
 
+    [Header("Pickaxe miss sound")]
+    [Tooltip("Clips for the Right, Left and Overhead swings, in that order.")]
+    [SerializeField] private AudioClip[] pickaxeMissClips;
+    [SerializeField, Range(0f, 1f)] private float pickaxeMissVolume = 0.4f;
+    [SerializeField] private Vector2 pickaxeMissPitchRange = new Vector2(0.75f, 0.85f);
+
     [Header("Debug")]
     [Tooltip("Draws the mining ray in the Scene view (green = hit rock, red = missed).")]
     [SerializeField] private bool drawDebugRay = true;
@@ -46,6 +52,8 @@ public class MiningController : MonoBehaviour
     private float nextMineTime;
     private float bufferedClickUntil = -1f;
     private PickaxeSwing activeSwing; // the swing of the tool in hand (or Pickaxe Swing without equipment)
+    private AudioSource pickaxeMissAudio;
+    private int nextPickaxeMissClip;
 
     /// <summary>The equipped mining tool, if the held item has one.</summary>
     private MiningToolController ActiveTool => equipment != null ? equipment.ActiveController as MiningToolController : null;
@@ -61,6 +69,9 @@ public class MiningController : MonoBehaviour
         if (playerCamera == null) playerCamera = GetComponentInChildren<Camera>();
         if (pickaxeSwing == null) pickaxeSwing = GetComponentInChildren<PickaxeSwing>();
         if (equipment == null) equipment = GetComponent<PlayerEquipment>();
+        pickaxeMissAudio = gameObject.AddComponent<AudioSource>();
+        pickaxeMissAudio.playOnAwake = false;
+        pickaxeMissAudio.spatialBlend = 0f;
 
         if (playerCamera == null)
             Debug.LogError("MiningController: no camera assigned or found in children.", this);
@@ -138,7 +149,8 @@ public class MiningController : MonoBehaviour
         else
         {
             HeldItemController.BeginAttack();
-            ApplyHit();
+            bool hitSomething = ApplyHit();
+            if (!hitSomething && activeSwing != null && activeSwing == pickaxeSwing) PlayPickaxeMiss();
         }
     }
 
@@ -147,7 +159,23 @@ public class MiningController : MonoBehaviour
     {
         PickaxeSwing swing = activeSwing;
         bool hitSomething = ApplyHit();
+        if (!hitSomething && swing != null && swing == pickaxeSwing) PlayPickaxeMiss(swing.CurrentSwingIndex);
         if (swing != null) swing.ReportImpact(hitSomething); // recoil + camera shake if we struck a surface
+    }
+
+    private void PlayPickaxeMiss(int swingIndex = -1)
+    {
+        if (pickaxeMissClips == null || pickaxeMissClips.Length == 0) return;
+        int start = swingIndex >= 0 ? swingIndex % pickaxeMissClips.Length : nextPickaxeMissClip;
+        for (int i = 0; i < pickaxeMissClips.Length; i++)
+        {
+            AudioClip clip = pickaxeMissClips[(start + i) % pickaxeMissClips.Length];
+            if (clip == null) continue;
+            if (swingIndex < 0) nextPickaxeMissClip = (start + i + 1) % pickaxeMissClips.Length;
+            pickaxeMissAudio.pitch = Random.Range(pickaxeMissPitchRange.x, pickaxeMissPitchRange.y);
+            pickaxeMissAudio.PlayOneShot(clip, pickaxeMissVolume);
+            return;
+        }
     }
 
     /// <summary>

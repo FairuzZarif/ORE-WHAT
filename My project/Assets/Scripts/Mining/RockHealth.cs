@@ -43,6 +43,7 @@ public class RockHealth : MonoBehaviour
 
     public int CurrentHealth => currentHealth;
     public int MaxHealth => maxHealth;
+    public ItemData OreItem => oreItem;
 
     private void Awake()
     {

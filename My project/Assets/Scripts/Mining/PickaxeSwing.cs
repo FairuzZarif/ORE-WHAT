@@ -212,6 +212,8 @@ public class PickaxeSwing : MonoBehaviour
     public string PhaseName => phase.ToString();
     /// <summary>The swing playing now ("Right", "Left", "Overhead"), or "None" when idle.</summary>
     public string CurrentSwingName => phase == Phase.Idle ? "None" : SwingNames[currentSwing];
+    /// <summary>Index of the current Right, Left or Overhead swing, or -1 when idle.</summary>
+    public int CurrentSwingIndex => phase == Phase.Idle ? -1 : currentSwing;
     /// <summary>The swing the next input will play.</summary>
     public string NextSwingName => SwingNames[nextSwing];
 

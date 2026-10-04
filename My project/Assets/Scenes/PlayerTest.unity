@@ -3757,6 +3757,8 @@ GameObject:
   - component: {fileID: 96825216}
   - component: {fileID: 96825215}
   - component: {fileID: 96825218}
+  - component: {fileID: 96825219}
+  - component: {fileID: 96825220}
   m_Layer: 8
   m_Name: Player
   m_TagString: Player
@@ -3886,6 +3888,12 @@ MonoBehaviour:
   hitLayers:
     serializedVersion: 2
     m_Bits: 119
+  pickaxeMissClips:
+  - {fileID: 8300000, guid: 700a578a62dd86246bd072365deb1e37, type: 3}
+  - {fileID: 8300000, guid: 99b5cbbddf1f1974c9e04066a441217c, type: 3}
+  - {fileID: 8300000, guid: 0acf063ca5574cc5bb4703271f44f79a, type: 3}
+  pickaxeMissVolume: 0.4
+  pickaxeMissPitchRange: {x: 0.75, y: 0.85}
   drawDebugRay: 1
 --- !u!114 &96825197
 MonoBehaviour:
@@ -3952,7 +3960,13 @@ MonoBehaviour:
   chipLifetime: {x: 0.5, y: 0.9}
   fallbackColor: {r: 0.45, g: 0.45, b: 0.47, a: 1}
   impactClips: []
+  oreImpactClips:
+  - {fileID: 8300000, guid: 934932d2a4844e77b4b461909f070e11, type: 3}
+  - {fileID: 8300000, guid: a40786484679423693d54af16f477481, type: 3}
+  - {fileID: 8300000, guid: 829394bb7a92428990d6ae7f9eed87be, type: 3}
+  - {fileID: 8300000, guid: 4e51762eb844450b9f9e43ec3ab40e4e, type: 3}
   volume: 0.7
+  oreVolume: 0.55
   pitchRange: {x: 0.9, y: 1.1}
   miningController: {fileID: 0}
 --- !u!114 &96825199
@@ -4044,6 +4058,7 @@ MonoBehaviour:
   collectDuration: 0.15
   pickupSound: {fileID: 0}
   pickupVolume: 0.5
+  dropVolume: 0.5
   messageDuration: 1.5
 --- !u!114 &96825203
 MonoBehaviour:
@@ -4306,7 +4321,7 @@ MonoBehaviour:
   maxScale: 12
   aimMask:
     serializedVersion: 2
-    m_Bits: 4294966971
+    m_Bits: 179
   adaptSpeed: 5
 --- !u!114 &96825214
 MonoBehaviour:
@@ -4724,6 +4739,93 @@ MonoBehaviour:
   m_ShadowLayerMask: 1
   m_RenderingLayers: 1
   m_ShadowRenderingLayers: 1
+--- !u!114 &96825219
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 96825190}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8a3c3b48e1c54c668c96b353590a8cc9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerFootsteps
+  grassClips:
+  - {fileID: 8300000, guid: 1a1c20f8f4664c53934c2ea9b7abb769, type: 3}
+  - {fileID: 8300000, guid: 408ed202b1a04583807e4059f1182eec, type: 3}
+  - {fileID: 8300000, guid: 87cefe3e95c444c196a2daece4808401, type: 3}
+  - {fileID: 8300000, guid: 94958c4ca61a48e1833137bd09d73f55, type: 3}
+  - {fileID: 8300000, guid: ebabea3b9ad440849a288745f06fd1bc, type: 3}
+  - {fileID: 8300000, guid: 07f68716733f40668f1705109faa5bcb, type: 3}
+  - {fileID: 8300000, guid: 811b71fa305d436291f84ab756ef35fc, type: 3}
+  - {fileID: 8300000, guid: eee33af7d3df42ecb79a1e558d18827c, type: 3}
+  - {fileID: 8300000, guid: a1cb40a442b044cbb914559bc103d8ac, type: 3}
+  - {fileID: 8300000, guid: 86aadedba4c74676970ab634ddb741de, type: 3}
+  grassClipGains:
+  - 2.512
+  - 3.273
+  - 1.567
+  - 1.679
+  - 1.972
+  - 1.82
+  - 1.905
+  - 2.138
+  - 1.059
+  - 1.718
+  rockClips:
+  - {fileID: 8300000, guid: 6db669d866fc435caf0eacc0f2a421df, type: 3}
+  - {fileID: 8300000, guid: def8d9d0378b40649d3cd09764a88015, type: 3}
+  - {fileID: 8300000, guid: 684d8a5bc8bb4c019e42dce6db3e2b80, type: 3}
+  - {fileID: 8300000, guid: 7390e9383217438f9b3f654eb3e1de88, type: 3}
+  - {fileID: 8300000, guid: 86cf7037b83c4d24915c03eed777a1c8, type: 3}
+  - {fileID: 8300000, guid: 3f9d70018e0443ebae92232bdf40c072, type: 3}
+  - {fileID: 8300000, guid: c0d92cec1dc94c1b8a58911b6f215335, type: 3}
+  - {fileID: 8300000, guid: c450c1d6aa0f46cc882f165c7a16aead, type: 3}
+  - {fileID: 8300000, guid: d8d3434286c64829ae04d73d02d59f58, type: 3}
+  - {fileID: 8300000, guid: a63b6c62080a4c1ba5193789e6d5b5fe, type: 3}
+  - {fileID: 8300000, guid: 271263324695442dad927bf3d77b0222, type: 3}
+  rockClipGains:
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  - 1
+  volume: 0.15
+  pitchVariation: 0.03
+  levelVariationDb: 1
+  caveEchoGain: 0.2
+  caveEchoDelayMs: 100
+  caveEchoDecay: 0.2
+  caveTransitionTime: 0.8
+  caveCeilingCheckDistance: 25
+  groundProbeDistance: 0.75
+  groundProbeHeight: 0.25
+--- !u!114 &96825220
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 96825190}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6833f8578ac24bdb9ae887f9d52469af, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerGait
+  walkCadence: 2.1
+  sprintCadence: 2.8
+  crouchCadence: 1.5
+  movementThreshold: 0.2
+  stepDistanceVariation: 0.03
+  stanceBlendTime: 0.25
+  phaseResetDelay: 0.35
 --- !u!1 &121639643
 GameObject:
   m_ObjectHideFlags: 0
@@ -5638,6 +5740,7 @@ GameObject:
   - component: {fileID: 253801556}
   - component: {fileID: 253801558}
   - component: {fileID: 253801557}
+  - component: {fileID: 253801559}
   m_Layer: 0
   m_Name: Cave
   m_TagString: Untagged
@@ -5713,12 +5816,29 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::CaveLayout
   blend: 2.5
   noiseSeed: 11
---- !u!1 &255642395
-GameObject:
+--- !u!114 &253801559
+MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 253801555}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 32e75c963c71417a97e11a4b9ed40431, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::CaveAmbience
+  layout: {fileID: 253801558}
+  entrance: {fileID: 1876172357}
+  mainTunnel: {fileID: 323108350}
+  forestClip: {fileID: 8300000, guid: 13d8072a32714ea69932df86bf0be688, type: 3}
+  caveClip: {fileID: 8300000, guid: 5ef68ba8a98a414db19ea15d99691656, type: 3}
+  forestVolume: 0.22
+  caveVolume: 0.45
+  fadeHalfDistance: 10
+  responseSpeed: 8
+--- !u!1 &255642395
+GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 255642396}
@@ -13883,6 +14003,11 @@ MonoBehaviour:
   strikeOffset: {x: -0.08, y: 0.04, z: 0.22}
   strikeTwist: 20
   impactKick: 1.2
+  swingClips:
+  - {fileID: 8300000, guid: 700a578a62dd86246bd072365deb1e37, type: 3}
+  - {fileID: 8300000, guid: 99b5cbbddf1f1974c9e04066a441217c, type: 3}
+  swingVolume: 0.4
+  swingPitchRange: {x: 1.2, y: 1.35}
 --- !u!114 &1052222757
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -26843,11 +26968,9 @@ MonoBehaviour:
   globalIntensity: 1
   positionSmoothness: 0.06
   rotationSmoothness: 0.08
-  walkBobFrequency: 1.8
   walkBobVerticalAmplitude: 0.025
   walkBobHorizontalAmplitude: 0.015
   walkRotationAmount: 0.6
-  runBobFrequency: 2.5
   runBobVerticalAmplitude: 0.045
   runBobHorizontalAmplitude: 0.025
   runRotationAmount: 1.2
@@ -26875,6 +26998,7 @@ MonoBehaviour:
   shakeDecay: 3
   playerMovement: {fileID: 0}
   characterController: {fileID: 0}
+  gait: {fileID: 96825220}
   motionState: {fileID: 0}
   pickaxeSwing: {fileID: 0}
   equipment: {fileID: 0}

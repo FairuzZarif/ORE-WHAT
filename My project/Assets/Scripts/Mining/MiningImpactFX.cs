@@ -7,8 +7,8 @@ using UnityEngine;
 ///
 /// Chips: small cube particles that fly out of the hit point along the surface normal,
 /// tinted to the surface's colour, bounce on the ground and shrink away.
-/// Sound: uses Impact Clips if you assign any; otherwise it synthesises a short
-/// "tok" (low thump + gritty crack + a faint metallic ring from the pick) at startup.
+/// Sound: ore-named targets use Ore Impact Clips; other surfaces use Impact Clips or a
+/// synthesised "tok" (low thump + gritty crack + a faint metallic ring from the pick).
 /// </summary>
 public class MiningImpactFX : MonoBehaviour
 {
@@ -28,7 +28,11 @@ public class MiningImpactFX : MonoBehaviour
     [Header("Sound")]
     [Tooltip("Optional. One is picked at random per hit. Leave empty to use the built-in synthesised sound.")]
     [SerializeField] private AudioClip[] impactClips;
+    [Tooltip("Used by default when the hit object, mesh, material or dropped item has Ore in its name.")]
+    [SerializeField] private AudioClip[] oreImpactClips;
     [SerializeField, Range(0f, 1f)] private float volume = 0.7f;
+    [Tooltip("Level of the recorded ore strikes, separate from the other impact sounds.")]
+    [SerializeField, Range(0f, 1f)] private float oreVolume = 0.55f;
     [Tooltip("Random pitch range per hit, so repeated hits don't sound identical.")]
     [SerializeField] private Vector2 pitchRange = new Vector2(0.9f, 1.1f);
 
@@ -41,6 +45,7 @@ public class MiningImpactFX : MonoBehaviour
     private ParticleSystem chips;
     private AudioSource audioSource;
     private AudioClip synthClip;
+    private int lastOreClipIndex = -1;
 
     private void Awake()
     {
@@ -63,12 +68,78 @@ public class MiningImpactFX : MonoBehaviour
         chips.Emit(rock != null ? rockChips : otherChips);
 
         // Sound at the hit point.
-        AudioClip clip = impactClips != null && impactClips.Length > 0
-            ? impactClips[Random.Range(0, impactClips.Length)] : synthClip;
+        AudioClip clip = IsOreHit(hit, rock) ? ChooseOreClip() : null;
+        bool usingOreClip = clip != null;
+        if (clip == null) clip = ChooseClip(impactClips);
+        if (clip == null) clip = synthClip;
         if (clip == null) return;
         audioSource.transform.position = hit.point;
         audioSource.pitch = Random.Range(pitchRange.x, pitchRange.y);
-        audioSource.PlayOneShot(clip, volume * (rock != null ? 1f : 0.7f));
+        audioSource.PlayOneShot(clip, usingOreClip ? oreVolume : volume * (rock != null ? 1f : 0.7f));
+    }
+
+    private AudioClip ChooseOreClip()
+    {
+        if (oreImpactClips == null || oreImpactClips.Length == 0) return null;
+        int index = Random.Range(0, oreImpactClips.Length);
+        if (oreImpactClips.Length > 1 && index == lastOreClipIndex)
+            index = (index + Random.Range(1, oreImpactClips.Length)) % oreImpactClips.Length;
+        lastOreClipIndex = index;
+        return oreImpactClips[index];
+    }
+
+    private static AudioClip ChooseClip(AudioClip[] clips)
+    {
+        if (clips == null || clips.Length == 0) return null;
+        int start = Random.Range(0, clips.Length);
+        for (int i = 0; i < clips.Length; i++)
+        {
+            AudioClip clip = clips[(start + i) % clips.Length];
+            if (clip != null) return clip;
+        }
+        return null;
+    }
+
+    private static bool IsOreHit(RaycastHit hit, RockHealth rock)
+    {
+        if (rock != null && (HasOreName(rock.name) ||
+                             (rock.OreItem != null && HasOreName(rock.OreItem.name))))
+            return true;
+
+        Collider collider = hit.collider;
+        if (collider == null) return false;
+        if (HasOreName(collider.name) ||
+            (collider.attachedRigidbody != null && HasOreName(collider.attachedRigidbody.name)))
+            return true;
+
+        var meshFilter = collider.GetComponent<MeshFilter>();
+        if (meshFilter != null && meshFilter.sharedMesh != null && HasOreName(meshFilter.sharedMesh.name))
+            return true;
+        if (collider is MeshCollider meshCollider && meshCollider.sharedMesh != null &&
+            HasOreName(meshCollider.sharedMesh.name))
+            return true;
+
+        Renderer renderer = collider.GetComponent<Renderer>();
+        if (renderer == null) renderer = collider.GetComponentInParent<Renderer>();
+        if (renderer != null)
+            foreach (Material material in renderer.sharedMaterials)
+                if (material != null && HasOreName(material.name)) return true;
+        return false;
+    }
+
+    private static bool HasOreName(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return false;
+        for (int i = 0; i <= name.Length - 3; i++)
+        {
+            if (string.Compare(name, i, "ore", 0, 3, System.StringComparison.OrdinalIgnoreCase) != 0)
+                continue;
+            bool before = i == 0 || !char.IsLetterOrDigit(name[i - 1]) ||
+                          (char.IsLower(name[i - 1]) && char.IsUpper(name[i]));
+            bool after = i + 3 == name.Length || !char.IsLetterOrDigit(name[i + 3]) || char.IsUpper(name[i + 3]);
+            if (before || after) return true; // Don't mistake names such as "Forest" for ore.
+        }
+        return false;
     }
 
     private Color SurfaceColor(Collider col)
