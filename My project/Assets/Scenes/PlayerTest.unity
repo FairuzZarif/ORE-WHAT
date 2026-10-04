@@ -3048,6 +3048,12 @@ MonoBehaviour:
   hitLayers:
     serializedVersion: 2
     m_Bits: 119
+  pickaxeMissClips:
+  - {fileID: 8300000, guid: 700a578a62dd86246bd072365deb1e37, type: 3}
+  - {fileID: 8300000, guid: 99b5cbbddf1f1974c9e04066a441217c, type: 3}
+  - {fileID: 8300000, guid: 0acf063ca5574cc5bb4703271f44f79a, type: 3}
+  pickaxeMissVolume: 0.4
+  pickaxeMissPitchRange: {x: 0.75, y: 0.85}
   drawDebugRay: 1
 --- !u!114 &96825197
 MonoBehaviour:
@@ -3114,7 +3120,13 @@ MonoBehaviour:
   chipLifetime: {x: 0.5, y: 0.9}
   fallbackColor: {r: 0.45, g: 0.45, b: 0.47, a: 1}
   impactClips: []
+  oreImpactClips:
+  - {fileID: 8300000, guid: 934932d2a4844e77b4b461909f070e11, type: 3}
+  - {fileID: 8300000, guid: a40786484679423693d54af16f477481, type: 3}
+  - {fileID: 8300000, guid: 829394bb7a92428990d6ae7f9eed87be, type: 3}
+  - {fileID: 8300000, guid: 4e51762eb844450b9f9e43ec3ab40e4e, type: 3}
   volume: 0.7
+  oreVolume: 0.55
   pitchRange: {x: 0.9, y: 1.1}
   miningController: {fileID: 0}
 --- !u!114 &96825199
@@ -3206,6 +3218,7 @@ MonoBehaviour:
   collectDuration: 0.15
   pickupSound: {fileID: 0}
   pickupVolume: 0.5
+  dropVolume: 0.5
   messageDuration: 1.5
 --- !u!114 &96825203
 MonoBehaviour:
@@ -4868,6 +4881,7 @@ GameObject:
   - component: {fileID: 253801556}
   - component: {fileID: 253801558}
   - component: {fileID: 253801557}
+  - component: {fileID: 253801559}
   m_Layer: 0
   m_Name: Cave
   m_TagString: Untagged
@@ -4943,6 +4957,27 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::CaveLayout
   blend: 2.5
   noiseSeed: 11
+--- !u!114 &253801559
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 253801555}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 32e75c963c71417a97e11a4b9ed40431, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::CaveAmbience
+  layout: {fileID: 253801558}
+  entrance: {fileID: 1876172357}
+  mainTunnel: {fileID: 323108350}
+  forestClip: {fileID: 8300000, guid: 13d8072a32714ea69932df86bf0be688, type: 3}
+  caveClip: {fileID: 8300000, guid: 5ef68ba8a98a414db19ea15d99691656, type: 3}
+  forestVolume: 0.22
+  caveVolume: 0.45
+  fadeHalfDistance: 10
+  responseSpeed: 8
 --- !u!1001 &254346539
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -12708,6 +12743,11 @@ MonoBehaviour:
   strikeOffset: {x: -0.08, y: 0.04, z: 0.22}
   strikeTwist: 20
   impactKick: 1.2
+  swingClips:
+  - {fileID: 8300000, guid: 700a578a62dd86246bd072365deb1e37, type: 3}
+  - {fileID: 8300000, guid: 99b5cbbddf1f1974c9e04066a441217c, type: 3}
+  swingVolume: 0.4
+  swingPitchRange: {x: 1.2, y: 1.35}
 --- !u!114 &1052222757
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -144,6 +144,7 @@ public class OreCarryController : MonoBehaviour
             c.body.angularVelocity = angularVelocity;
             c.body.WakeUp();
         }
+        if (c.item != null) GetComponent<ItemPickupInteractor>()?.PlayDropSound();
         return c.item;
     }
 
@@ -153,6 +154,7 @@ public class OreCarryController : MonoBehaviour
         if (carried.Count == 0) return null;
         DroppedItem item = carried[carried.Count - 1].item;
         Release(carried.Count - 1, toss: true);
+        if (item != null) GetComponent<ItemPickupInteractor>()?.PlayDropSound();
         return item;
     }
 

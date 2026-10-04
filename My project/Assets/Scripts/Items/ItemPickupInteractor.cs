@@ -49,6 +49,8 @@ public class ItemPickupInteractor : MonoBehaviour
     [Tooltip("Played on pickup unless the item has its own sound. Empty = a small built-in pop.")]
     [SerializeField] private AudioClip pickupSound;
     [SerializeField, Range(0f, 1f)] private float pickupVolume = 0.5f;
+    [Tooltip("Volume of the pickup sound played in reverse when dropping or throwing an item.")]
+    [SerializeField, Range(0f, 1f)] private float dropVolume = 0.5f;
     [Tooltip("How long messages like \"Inventory Full\" stay on screen (seconds).")]
     [SerializeField, Min(0f)] private float messageDuration = 1.5f;
 
@@ -87,6 +89,7 @@ public class ItemPickupInteractor : MonoBehaviour
     public event Action<ItemData, int> PickedUp;
 
     private AudioSource audioSource;
+    private AudioClip dropSound;
     private string message;
     private float messageUntil;
 
@@ -102,7 +105,13 @@ public class ItemPickupInteractor : MonoBehaviour
         audioSource = gameObject.AddComponent<AudioSource>();
         audioSource.playOnAwake = false;
         audioSource.spatialBlend = 0f;
-        if (pickupSound == null) pickupSound = CreatePopSound();
+        if (pickupSound == null)
+        {
+            pickupSound = CreatePopSound();
+            dropSound = CreatePopSound(reversed: true);
+        }
+        else
+            dropSound = CreateReversedSound(pickupSound) ?? CreatePopSound(reversed: true);
     }
 
     private void Update()
@@ -217,6 +226,12 @@ public class ItemPickupInteractor : MonoBehaviour
         if (clip != null) audioSource.PlayOneShot(clip, pickupVolume);
     }
 
+    /// <summary>Plays the default pickup cue backwards after an item is released or thrown.</summary>
+    public void PlayDropSound()
+    {
+        if (dropSound != null) audioSource.PlayOneShot(dropSound, dropVolume);
+    }
+
     public void ShowMessage(string text)
     {
         message = text;
@@ -224,7 +239,7 @@ public class ItemPickupInteractor : MonoBehaviour
     }
 
     /// <summary>A short, soft rising "pop" so pickups make a sound without any audio files.</summary>
-    private static AudioClip CreatePopSound()
+    private static AudioClip CreatePopSound(bool reversed = false)
     {
         const int rate = 44100;
         const float length = 0.09f;
@@ -239,7 +254,26 @@ public class ItemPickupInteractor : MonoBehaviour
             float envelope = Mathf.Min(1f, t / 0.005f) * Mathf.Exp(-t * 38f);
             data[i] = Mathf.Sin(phase) * envelope * 0.6f;
         }
-        AudioClip clip = AudioClip.Create("PickupPop", n, 1, rate, false);
+        if (reversed) Array.Reverse(data);
+        AudioClip clip = AudioClip.Create(reversed ? "DropPop" : "PickupPop", n, 1, rate, false);
+        clip.SetData(data, 0);
+        return clip;
+    }
+
+    private static AudioClip CreateReversedSound(AudioClip source)
+    {
+        float[] data = new float[source.samples * source.channels];
+        if (!source.GetData(data, 0)) return null;
+        for (int left = 0, right = source.samples - 1; left < right; left++, right--)
+        {
+            for (int channel = 0; channel < source.channels; channel++)
+            {
+                int a = left * source.channels + channel;
+                int b = right * source.channels + channel;
+                (data[a], data[b]) = (data[b], data[a]);
+            }
+        }
+        AudioClip clip = AudioClip.Create(source.name + " Reversed", source.samples, source.channels, source.frequency, false);
         clip.SetData(data, 0);
         return clip;
     }

@@ -43,6 +43,20 @@ public static class MiningSetupTool
         if (mining == null) mining = Undo.AddComponent<MiningController>(player);
         var so = new SerializedObject(mining);
         so.FindProperty("playerCamera").objectReferenceValue = cam;
+        var pickaxeMissClips = so.FindProperty("pickaxeMissClips");
+        if (pickaxeMissClips.arraySize == 0)
+        {
+            pickaxeMissClips.arraySize = 2;
+            for (int i = 0; i < pickaxeMissClips.arraySize; i++)
+                pickaxeMissClips.GetArrayElementAtIndex(i).objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>(
+                    $"Assets/Audio/Swings/swing_{i + 1}.mp3");
+        }
+        if (pickaxeMissClips.arraySize == 2)
+        {
+            pickaxeMissClips.arraySize = 3;
+            pickaxeMissClips.GetArrayElementAtIndex(2).objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>(
+                "Assets/Audio/Swings/swing_3.wav");
+        }
         so.ApplyModifiedProperties();
 
         // --- First-person arms + pickaxe (also wires MiningController.pickaxeSwing) ---
@@ -56,6 +70,14 @@ public static class MiningSetupTool
         if (fx == null) fx = Undo.AddComponent<MiningImpactFX>(player);
         var fxSo = new SerializedObject(fx);
         fxSo.FindProperty("chipMaterial").objectReferenceValue = GetOrCreateChipMaterial();
+        var oreClips = fxSo.FindProperty("oreImpactClips");
+        if (oreClips.arraySize == 0)
+        {
+            oreClips.arraySize = 4;
+            for (int i = 0; i < oreClips.arraySize; i++)
+                oreClips.GetArrayElementAtIndex(i).objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>(
+                    $"Assets/Audio/Impacts/Ore/ore_hit_{i + 1:00}.wav");
+        }
         fxSo.ApplyModifiedProperties();
 
         // --- Rocks -----------------------------------------------------------

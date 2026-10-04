@@ -81,6 +81,11 @@ public static class FistsSetupTool
         fso.FindProperty("leftGuard").vector3Value = left.localPosition;
         fso.FindProperty("rightGuardRotation").quaternionValue = right.localRotation;
         fso.FindProperty("leftGuardRotation").quaternionValue = left.localRotation;
+        var swingClips = fso.FindProperty("swingClips");
+        swingClips.arraySize = 2;
+        for (int i = 0; i < swingClips.arraySize; i++)
+            swingClips.GetArrayElementAtIndex(i).objectReferenceValue = AssetDatabase.LoadAssetAtPath<AudioClip>(
+                $"Assets/Audio/Swings/swing_{i + 1}.mp3");
         fso.ApplyModifiedPropertiesWithoutUndo();
         // Relaxed: grips start lowered (the view is only shown while punching; hands rise from below the screen).
         right.localPosition = fso.FindProperty("rightLowered").vector3Value;

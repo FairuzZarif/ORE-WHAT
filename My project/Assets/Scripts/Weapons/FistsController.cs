@@ -60,6 +60,11 @@ public class FistsController : HeldItemController
     [Tooltip("Camera kick when a punch connects, degrees.")]
     [SerializeField] private float impactKick = 1.2f;
 
+    [Header("Punch sound")]
+    [SerializeField] private AudioClip[] swingClips;
+    [SerializeField, Range(0f, 1f)] private float swingVolume = 0.4f;
+    [SerializeField] private Vector2 swingPitchRange = new Vector2(1.20f, 1.35f);
+
     private enum Phase { Idle, Raise, Strike, Hold, Recover }
     private class Hand { public Phase phase; public float time; }
 
@@ -68,6 +73,8 @@ public class FistsController : HeldItemController
     private bool rightHandNext = true, lastWasRight = true, wasPunching;
     private Transform player;
     private readonly RaycastHit[] hits = new RaycastHit[16];
+    private AudioSource swingAudio;
+    private int nextSwingClip;
 
     /// <summary>Never blocks switching: selecting an item just cancels the punch.</summary>
     public override bool IsBusy => false;
@@ -85,6 +92,9 @@ public class FistsController : HeldItemController
         if (rightGrip == null) rightGrip = transform.Find("RightHandGrip");
         if (leftGrip == null) leftGrip = transform.Find("LeftHandGrip");
         player = transform.root;
+        swingAudio = gameObject.AddComponent<AudioSource>();
+        swingAudio.playOnAwake = false;
+        swingAudio.spatialBlend = 0f;
     }
 
     private void OnEnable() => ResetPose();
@@ -140,10 +150,24 @@ public class FistsController : HeldItemController
         Place(isRight, hand.phase, t);
         if (t < 1f) return;
 
+        if (hand.phase == Phase.Raise) PlayPunchSwing();
         if (hand.phase == Phase.Strike) Impact();
         hand.time = 0f;
         hand.phase = hand.phase == Phase.Raise ? Phase.Strike : hand.phase == Phase.Strike ? Phase.Hold : hand.phase == Phase.Hold ? Phase.Recover : Phase.Idle;
         if (hand.phase == Phase.Idle) Place(isRight, Phase.Idle, 0f);
+    }
+
+    private void PlayPunchSwing()
+    {
+        if (swingClips == null || swingClips.Length == 0) return;
+        for (int i = 0; i < swingClips.Length; i++)
+        {
+            AudioClip clip = swingClips[nextSwingClip++ % swingClips.Length];
+            if (clip == null) continue;
+            swingAudio.pitch = UnityEngine.Random.Range(swingPitchRange.x, swingPitchRange.y);
+            swingAudio.PlayOneShot(clip, swingVolume);
+            return;
+        }
     }
 
     /// <summary>Puts one hand's grip point where it is along the punch.</summary>
