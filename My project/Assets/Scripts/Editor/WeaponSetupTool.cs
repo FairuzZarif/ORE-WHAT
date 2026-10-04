@@ -40,6 +40,8 @@ public static class WeaponSetupTool
         public bool automatic;
         public float fireCooldown, reloadDuration, range, damage;
         public Vector3 recoilKick; public Vector2 recoilRotation; public float cameraKick, maxRecoilStack;
+        // Aim recoil: a spray pattern (automatic) or a kick per shot (single fire).
+        public Vector2[] sprayPattern = new Vector2[0]; public Vector2 aimKick; public float shotVariation, aimRecovery, sprayResetDelay = 0.35f;
         public string slideBone, chargingBone; public float slideTravel, chargingTravel;
         // Magazine: capacity, how far it slides straight out of the well, its length below the bone,
         // and where the hand carries it (camera space) during a reload.
@@ -71,6 +73,7 @@ public static class WeaponSetupTool
             magazineCapacity = 12, magazineExtract = 0.11f, magazineLength = 0.11f, magazineStow = new Vector3(-0.08f, -0.25f, -0.05f),
             reloadOffset = new Vector3(-0.06f, 0.07f, 0.03f), reloadTilt = new Vector3(-12f, -12f, -35f),
             recoilKick = new Vector3(0.004f, 0.012f, 0.04f), recoilRotation = new Vector2(7f, 1.5f), cameraKick = 0.7f, maxRecoilStack = 1.5f,
+            aimKick = new Vector2(0.35f, 1.4f), shotVariation = 0.08f, aimRecovery = 9f,
             slideBone = "Slide", slideTravel = 0.028f, chargingBone = null, chargingTravel = 0f,
             flashSize = 0.09f,
         },
@@ -88,10 +91,46 @@ public static class WeaponSetupTool
             magazineCapacity = 30, magazineExtract = 0.07f, magazineLength = 0.17f, magazineStow = new Vector3(-0.08f, -0.25f, -0.06f),
             reloadOffset = new Vector3(-0.08f, 0.11f, 0f), reloadTilt = new Vector3(-10f, -10f, -28f),
             recoilKick = new Vector3(0.003f, 0.006f, 0.02f), recoilRotation = new Vector2(2.5f, 1f), cameraKick = 0.35f, maxRecoilStack = 3f,
+            sprayPattern = WeaponController.DefaultRifleSpray, shotVariation = 0.15f, aimRecovery = 7f, sprayResetDelay = 0.35f,
             slideBone = "Bolt", slideTravel = 0.03f, chargingBone = "Charging Handle", chargingTravel = 0.06f,
             flashSize = 0.13f,
         },
     };
+
+    /// <summary>Writes a gun's aim recoil / spray settings onto its WeaponController.</summary>
+    private static void SetAimRecoil(SerializedObject so, Spec spec)
+    {
+        var pattern = so.FindProperty("sprayPattern");
+        pattern.arraySize = spec.sprayPattern.Length;
+        for (int i = 0; i < spec.sprayPattern.Length; i++) pattern.GetArrayElementAtIndex(i).vector2Value = spec.sprayPattern[i];
+        so.FindProperty("aimKick").vector2Value = spec.aimKick;
+        so.FindProperty("shotVariation").floatValue = spec.shotVariation;
+        so.FindProperty("aimRecovery").floatValue = spec.aimRecovery;
+        so.FindProperty("sprayResetDelay").floatValue = spec.sprayResetDelay;
+        so.FindProperty("recoilKick").vector3Value = spec.recoilKick;
+        so.FindProperty("recoilRotation").vector2Value = spec.recoilRotation;
+        so.FindProperty("cameraKick").floatValue = spec.cameraKick;
+    }
+
+    /// <summary>Applies the aim recoil / spray settings to the guns already in the scene (nothing else changes).</summary>
+    [MenuItem("Ore What/Apply Weapon Recoil Settings")]
+    public static void ApplyAimRecoil()
+    {
+        GameObject player = GameObject.FindWithTag("Player");
+        Camera cam = player != null ? player.GetComponentInChildren<Camera>(true) : null;
+        if (cam == null) { Debug.LogError("[Ore What] No player camera."); return; }
+        foreach (Spec spec in Weapons)
+        {
+            Transform view = cam.transform.Find(spec.ViewName);
+            var wc = view != null ? view.GetComponent<WeaponController>() : null;
+            if (wc == null) continue;
+            var so = new SerializedObject(wc);
+            SetAimRecoil(so, spec);
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+        UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(player.scene);
+        UnityEditor.SceneManagement.EditorSceneManager.SaveScene(player.scene);
+    }
 
     // A pistol is held one-handed for now: the left hand rests low, below the bottom of the screen.
     private static readonly Vector3 LoweredLeftHand = new Vector3(-0.18f, -0.52f, 0.18f);
@@ -322,6 +361,7 @@ public static class WeaponSetupTool
         so.FindProperty("recoilRotation").vector2Value = spec.recoilRotation;
         so.FindProperty("cameraKick").floatValue = spec.cameraKick;
         so.FindProperty("maxRecoilStack").floatValue = spec.maxRecoilStack;
+        SetAimRecoil(so, spec);
         so.FindProperty("slide").objectReferenceValue = string.IsNullOrEmpty(spec.slideBone) ? null : FindDeep(mesh, spec.slideBone);
         so.FindProperty("slideTravel").floatValue = spec.slideTravel;
         so.FindProperty("magazine").objectReferenceValue = FindDeep(mesh, "Magazine");

@@ -31,6 +31,17 @@ public static class ItemDrops
     {
         if (item == null || amount <= 0) return null;
 
+        // Multiplayer: items are shared, so the host spawns them (a client gets null; the item appears a moment later).
+        if (WorldNetwork.Current != null)
+            return WorldNetwork.Current.SpawnItem(item, amount, position, rotation, velocity, angularVelocity);
+
+        return SpawnLocal(item, amount, position, rotation, velocity, angularVelocity);
+    }
+
+    /// <summary>Creates the item in this game only (single player, or the host building a shared item).</summary>
+    public static DroppedItem SpawnLocal(ItemData item, int amount, Vector3 position, Quaternion rotation,
+                                         Vector3 velocity, Vector3 angularVelocity)
+    {
         GameObject go = item.WorldPrefab != null
             ? Object.Instantiate(item.WorldPrefab, position, rotation)
             : CreateFallbackCube(position, rotation);

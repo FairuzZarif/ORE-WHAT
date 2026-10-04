@@ -101,6 +101,7 @@ public static class MiningSetupTool
         HeadlampSetupTool.Add(player);              // L toggles the hardhat's headlamp
         FistsSetupTool.Add(player);                 // fists for empty hotbar slots (copy of ItemHoldViewModel)
         FirstPersonCharacterArmsTool.Apply(player); // the views above get the character's own arms (if it has a CharacterVisual)
+        CombatSetupTool.Add(player);                // damage feedback, death (ragdoll), death screen, respawn
 
         AssetDatabase.SaveAssets(); // persist material tweaks (metallic/smoothness)
         EditorSceneManager.MarkSceneDirty(player.scene);

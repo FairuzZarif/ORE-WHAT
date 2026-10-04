@@ -21,7 +21,13 @@ using UnityEngine.InputSystem;
 /// magazine back and pushes it in, the slide/charging handle is racked, the gun settles, and the
 /// magazine is full. The magazine is the imported rig's Magazine bone (the mesh follows it fully).
 ///
-/// Each shot casts one ray from the centre of the camera. It never hits the player or the
+/// Recoil: the gun model kicks back and up (Recoil), and the aim kicks too (Aim recoil & spray
+/// pattern), shown through CameraRotation (CameraEffects adds it to CameraRoot; PlayerLook's own aim is
+/// never changed). Automatic guns follow Spray Pattern one entry per shot fired; single-shot guns add
+/// Aim Kick per shot. The aim settles back when you stop firing; the spray restarts after Spray Reset
+/// Delay or a reload.
+///
+/// Each shot casts one ray from the camera, along the crosshair plus the recoil. It never hits the player or the
 /// first-person view. What it hits:
 ///   - an IDamageable (future enemies) takes Damage
 ///   - a rock (RockHealth) takes Rock Damage through its normal TakeHit
@@ -92,12 +98,42 @@ public class WeaponController : HeldItemController
     [SerializeField] private Vector3 recoilKick = new Vector3(0.004f, 0.01f, 0.035f);
     [Tooltip("Gun rotation per shot, degrees: X = muzzle up, Y = random left/right.")]
     [SerializeField] private Vector2 recoilRotation = new Vector2(6f, 1.5f);
-    [Tooltip("Camera kick per shot, degrees (visual only; your aim returns by itself).")]
+    [Tooltip("Extra camera jolt per shot, degrees (a short pulse on top of the aim recoil below).")]
     [SerializeField, Min(0f)] private float cameraKick = 0.6f;
     [Tooltip("How fast the gun settles back after a shot. Higher = snappier.")]
     [SerializeField, Min(1f)] private float recoilRecovery = 14f;
-    [Tooltip("Automatic fire: most shots' worth of recoil that can stack up.")]
+    [Tooltip("Automatic fire: most shots' worth of recoil that can stack up. Single shots: also caps how far repeated Aim Kicks climb.")]
     [SerializeField, Min(1f)] private float maxRecoilStack = 2.5f;
+
+    [Header("Aim recoil & spray pattern")]
+    [Tooltip("Where shot N of a spray goes, relative to where you aim, degrees (X = right, Y = up); one entry per " +
+             "shot actually fired. The view follows it, so the crosshair shows where the bullets go and pulling the " +
+             "mouse against it compensates. Past the last entry the spray stays at the last point. " +
+             "Empty = no pattern: each shot adds Aim Kick instead (pistol).")]
+    [SerializeField] private Vector2[] sprayPattern = new Vector2[0];
+    [Tooltip("Without a spray pattern: aim kick per shot, degrees. X = random left/right up to this, Y = up.")]
+    [SerializeField] private Vector2 aimKick = new Vector2(0.35f, 1.4f);
+    [Tooltip("Small random deviation per shot, degrees. In a spray it grows over the first 4 shots, so the first bullet is exact.")]
+    [SerializeField, Min(0f)] private float shotVariation = 0.1f;
+    [Tooltip("How quickly the aim settles back after you stop firing (per second; higher = faster).")]
+    [SerializeField, Min(0.1f)] private float aimRecovery = 7f;
+    [Tooltip("Seconds without firing before the next spray starts again from its first shot.")]
+    [SerializeField, Min(0f)] private float sprayResetDelay = 0.35f;
+    [Tooltip("How quickly the view follows each kick while firing (per second).")]
+    [SerializeField, Min(1f)] private float kickSpeed = 30f;
+
+    /// <summary>The assault rifle's spray (degrees): straight up first, then a drift left, back right, and left again.</summary>
+    public static readonly Vector2[] DefaultRifleSpray =
+    {
+        new Vector2(0f, 0f),       new Vector2(0f, 0.45f),     new Vector2(0.05f, 0.95f),  new Vector2(-0.05f, 1.5f),
+        new Vector2(-0.1f, 2.05f), new Vector2(-0.2f, 2.55f),  new Vector2(-0.4f, 3f),     new Vector2(-0.7f, 3.4f),
+        new Vector2(-1f, 3.75f),   new Vector2(-1.3f, 4.05f),  new Vector2(-1.5f, 4.3f),   new Vector2(-1.6f, 4.55f),
+        new Vector2(-1.5f, 4.75f), new Vector2(-1.2f, 4.95f),  new Vector2(-0.8f, 5.1f),   new Vector2(-0.3f, 5.25f),
+        new Vector2(0.2f, 5.4f),   new Vector2(0.7f, 5.5f),    new Vector2(1.1f, 5.6f),    new Vector2(1.4f, 5.7f),
+        new Vector2(1.6f, 5.8f),   new Vector2(1.6f, 5.9f),    new Vector2(1.4f, 6f),      new Vector2(1f, 6.05f),
+        new Vector2(0.6f, 6.1f),   new Vector2(0.2f, 6.15f),   new Vector2(-0.2f, 6.2f),   new Vector2(-0.6f, 6.25f),
+        new Vector2(-0.9f, 6.3f),  new Vector2(-1.1f, 6.35f),
+    };
 
     [Header("Rig parts (from the gun's imported rig)")]
     [Tooltip("Slide (pistol) or bolt (rifle): moves back on each shot.")]
@@ -156,8 +192,15 @@ public class WeaponController : HeldItemController
 
     /// <summary>Raised on every shot, hit or miss.</summary>
     public event Action ShotFired;
+    /// <summary>Raised when a reload starts, with its duration (seconds). Used to show it to other players.</summary>
+    public event Action<float> ReloadStarted;
     /// <summary>Raised when a shot hits something (anything with a collider).</summary>
     public event Action<RaycastHit> ShotHit;
+
+    public override float PlayerDamage => damage;
+    public override float AttackRange => range;
+    public override float AttackInterval => fireCooldown;
+    public override bool IsRanged => true;
 
     public bool IsReloading => reloading;
     public bool Automatic => automatic;
@@ -168,6 +211,14 @@ public class WeaponController : HeldItemController
     public float ReloadProgress => reloading ? reloadT : 0f;
     /// <summary>Shots fired since this gun was taken out (for testing/debugging).</summary>
     public int ShotsFired { get; private set; }
+    /// <summary>Shots in the current spray (0 = the next shot starts a new spray).</summary>
+    public int SprayIndex => sprayIndex;
+    /// <summary>Where the gun's recoil currently puts the aim, degrees (X = right, Y = up).</summary>
+    public Vector2 AimRecoil => aimRecoil;
+    /// <summary>Direction of the last shot fired (for testing/debugging).</summary>
+    public Vector3 LastShotDirection { get; private set; }
+    /// <summary>Where the last shot stopped (hit point, or the end of the range on a miss). Other players' tracers end here.</summary>
+    public Vector3 LastShotEnd { get; private set; }
     /// <summary>Switching or throwing is always allowed: it simply cancels a reload.</summary>
     public override bool IsBusy => false;
     public override Vector3 CameraRotation => cameraRot;
@@ -184,6 +235,9 @@ public class WeaponController : HeldItemController
     private bool reloading, triggerArmed;
     private float reloadT;
     private Vector3 cameraRot;
+    private Vector2 aimRecoil, shownRecoil; // degrees, X = right, Y = up: target / what the view shows
+    private int sprayIndex;
+    private float lastShotTime = -10f;
     private readonly RaycastHit[] hits = new RaycastHit[16];
 
     private void Awake()
@@ -194,11 +248,7 @@ public class WeaponController : HeldItemController
         playerRoot = transform.root;
         currentAmmo = magazineCapacity; // the gun starts with a full magazine
 
-        if (weaponRoot != null) { rootRestPos = weaponRoot.localPosition; rootRestRot = weaponRoot.localRotation; }
-        if (supportHandGrip != null) handRestPos = supportHandGrip.localPosition;
-        if (slide != null) { slideRest = slide.localPosition; slideDirModel = Vector3.back; }
-        if (magazine != null) { magRest = magazine.localPosition; magDirModel = weaponRoot.InverseTransformDirection(magazine.up); }
-        if (chargingHandle != null) chargeRest = chargingHandle.localPosition;
+        CaptureRest();
         if (muzzleLight != null) muzzleLight.enabled = false;
 
         // Sounds come from the gun itself (it sits just in front of the camera/listener).
@@ -213,6 +263,39 @@ public class WeaponController : HeldItemController
         if (equipSound == null) equipSound = WeaponSounds.Equip();
         if (impactMaterial != null) impactFX = CreateImpactFX(impactMaterial);
     }
+
+    /// <summary>Remembers the gun, hand grip and rig bones at rest (what recoil and the reload move from).</summary>
+    private void CaptureRest()
+    {
+        if (weaponRoot != null) { rootRestPos = weaponRoot.localPosition; rootRestRot = weaponRoot.localRotation; }
+        if (supportHandGrip != null) handRestPos = supportHandGrip.localPosition;
+        if (slide != null) { slideRest = slide.localPosition; slideDirModel = Vector3.back; }
+        if (magazine != null) { magRest = magazine.localPosition; magDirModel = weaponRoot.InverseTransformDirection(magazine.up); }
+        if (chargingHandle != null) chargeRest = chargingHandle.localPosition;
+    }
+
+#if UNITY_EDITOR
+    /// <summary>The rig bones the reload moves (magazine, slide, charging handle), for the multiplayer setup tool.</summary>
+    public Transform[] ReloadBones => new[] { magazine, slide, chargingHandle };
+
+    /// <summary>
+    /// Editor only, used to bake what other players see of this reload: poses the gun, support-hand grip and rig bones
+    /// exactly as the reload looks at progress t (0..1), through the same ApplyPose the game uses. Call on the gun at rest;
+    /// the caller restores the transforms afterwards.
+    /// </summary>
+    public void PreviewReloadPose(float t)
+    {
+        if (weaponRoot == null) weaponRoot = transform.Find("WeaponHolder");
+        if (supportHandGrip == null && weaponRoot != null) supportHandGrip = weaponRoot.Find("LeftHandGrip");
+        CaptureRest();
+        recoil = slideKick = 0f;
+        reloading = true;
+        reloadT = Mathf.Clamp01(t);
+        ApplyPose();
+        reloading = false;
+        reloadT = 0f;
+    }
+#endif
 
     private static AudioSource CreateSource(GameObject host)
     {
@@ -241,6 +324,9 @@ public class WeaponController : HeldItemController
         reloadT = 0f;
         recoil = slideKick = 0f;
         cameraRot = Vector3.zero;
+        aimRecoil = shownRecoil = Vector2.zero;
+        sprayIndex = 0;
+        lastShotTime = -10f;
         if (reloadSource != null) reloadSource.Stop();
         if (muzzleLight != null) muzzleLight.enabled = false;
         ApplyPose();
@@ -277,7 +363,14 @@ public class WeaponController : HeldItemController
         float settle = 1f - Mathf.Exp(-recoilRecovery * dt);
         recoil = Mathf.Lerp(recoil, 0f, settle);
         slideKick = Mathf.MoveTowards(slideKick, 0f, dt / 0.07f);
-        cameraRot = new Vector3(-cameraKick * recoil, cameraKick * 0.3f * recoil * recoilSide, 0f);
+
+        // Aim recoil: the view follows each kick quickly while firing, then settles back to your aim.
+        bool firing = Time.time - lastShotTime < fireCooldown + 0.05f;
+        if (!firing) aimRecoil = Vector2.zero;
+        if (Time.time - lastShotTime > sprayResetDelay) sprayIndex = 0;
+        shownRecoil = Vector2.Lerp(shownRecoil, aimRecoil, 1f - Mathf.Exp(-(firing ? kickSpeed : aimRecovery) * dt));
+        // CameraEffects adds this to CameraRoot (X = pitch, negative = up; Y = yaw). PlayerLook is untouched.
+        cameraRot = new Vector3(-shownRecoil.y - cameraKick * recoil, shownRecoil.x + cameraKick * 0.3f * recoil * recoilSide, 0f);
 
         if (muzzleLight != null && muzzleLight.enabled)
         {
@@ -299,7 +392,10 @@ public class WeaponController : HeldItemController
         if (currentAmmo >= magazineCapacity && !reloadWhenFull) return;
         reloading = true;
         reloadT = 0f;
+        sprayIndex = 0;      // a new magazine starts a new spray
+        lastShotTime = -10f; // and the recoil settles during the reload
         if (reloadSource != null) reloadSource.Stop();
+        ReloadStarted?.Invoke(reloadDuration);
     }
 
     /// <summary>Moves the reload on, plays each reload sound as its moment is reached, refills at the end.</summary>
@@ -329,11 +425,36 @@ public class WeaponController : HeldItemController
     private void Fire()
     {
         nextShotTime = Time.time + fireCooldown;
+        BeginAttack(); // one bullet = one possible hit
         currentAmmo--;
         ShotsFired++;
 
-        // Hit detection: one ray from the centre of the screen; skip anything that belongs to the player.
-        Ray ray = playerCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+        // Where this shot goes, relative to the centre of the screen (degrees, X = right, Y = up).
+        Vector2 offset;
+        Vector2 shown = new Vector2(cameraRot.y, -cameraRot.x); // what this gun's recoil already turned the view by
+        if (sprayPattern != null && sprayPattern.Length > 0)
+        {
+            // Spray: shot N lands at pattern[N] from your aim. The view already shows part of that, so only the rest is added.
+            Vector2 point = sprayPattern[Mathf.Min(sprayIndex, sprayPattern.Length - 1)];
+            point += UnityEngine.Random.insideUnitCircle * (shotVariation * Mathf.Clamp01(sprayIndex / 4f));
+            aimRecoil = point;
+            offset = point - shown;
+        }
+        else
+        {
+            // Single shots: this bullet goes where the crosshair is (plus a tiny variation); the kick comes after.
+            offset = UnityEngine.Random.insideUnitCircle * shotVariation;
+            aimRecoil = shownRecoil + new Vector2(UnityEngine.Random.Range(-aimKick.x, aimKick.x), aimKick.y);
+            aimRecoil.y = Mathf.Min(aimRecoil.y, aimKick.y * maxRecoilStack);
+        }
+        sprayIndex++;
+        lastShotTime = Time.time;
+
+        // Hit detection: one ray from the camera; skip anything that belongs to the player.
+        Transform eye = playerCamera.transform;
+        Vector3 direction = Quaternion.AngleAxis(offset.x, eye.up) * Quaternion.AngleAxis(-offset.y, eye.right) * eye.forward;
+        Ray ray = new Ray(eye.position, direction);
+        LastShotDirection = direction;
         int count = Physics.RaycastNonAlloc(ray, hits, range, hitLayers, QueryTriggerInteraction.Ignore);
         int best = -1;
         for (int i = 0; i < count; i++)
@@ -342,6 +463,9 @@ public class WeaponController : HeldItemController
             if (best < 0 || hits[i].distance < hits[best].distance) best = i;
         }
         if (best >= 0) RegisterHit(hits[best], ray.direction);
+        // Where this shot stopped: the hit, or the end of its range. The tracer (here and for other players) ends there.
+        LastShotEnd = best >= 0 ? hits[best].point : ray.origin + ray.direction * range;
+        PlayTracer();
 
         // Feedback.
         recoil = Mathf.Min(recoil + 1f, maxRecoilStack);
@@ -356,6 +480,21 @@ public class WeaponController : HeldItemController
         }
         ShotFired?.Invoke();
     }
+
+    /// <summary>
+    /// The visual tracer of the shot just fired, from the muzzle as it's drawn on screen (the first-person view is shown
+    /// offset from its real pose, FirstPersonPresentation) to the shot's real end point. Changes nothing about the shot.
+    /// </summary>
+    private void PlayTracer()
+    {
+        Transform muzzle = muzzleFlash != null ? muzzleFlash.transform : weaponRoot;
+        if (muzzle == null) return;
+        if (presentation == null && playerCamera != null) presentation = playerCamera.GetComponent<FirstPersonPresentation>();
+        Vector3 start = presentation != null ? presentation.ToPresented(muzzle.position) : muzzle.position;
+        BulletTracers.Play(start, LastShotEnd, automatic);
+    }
+
+    private FirstPersonPresentation presentation;
 
     /// <summary>Trigger pulled on an empty magazine: just a click (rate-limited), no shot, no auto-reload.</summary>
     private void DryFire()
@@ -377,7 +516,7 @@ public class WeaponController : HeldItemController
         if (hit.rigidbody != null && !hit.rigidbody.isKinematic)
             hit.rigidbody.AddForceAtPosition(direction * hitForce, hit.point, ForceMode.Impulse);
 
-        if (impactFX != null && impactParticles > 0)
+        if (impactFX != null && impactParticles > 0 && target == null) // rock chips, not on players/creatures (they bleed instead)
         {
             impactFX.transform.SetPositionAndRotation(hit.point + hit.normal * 0.01f, Quaternion.LookRotation(hit.normal));
             impactFX.Emit(impactParticles);
@@ -563,6 +702,41 @@ public static class WeaponSounds
         AddSlide(data, 0f, 0.18f, 0.25f, rng);
         AddClick(data, 0.16f, 2200f, 0.4f, rng);
         return Finish("Equip (synth)", data, 0.6f);
+    }
+
+    /// <summary>Hit confirmed (you hurt another player): a short, bright "tick".</summary>
+    public static AudioClip HitTick()
+    {
+        var data = new float[Mathf.CeilToInt(Rate * 0.07f)];
+        for (int i = 0; i < data.Length; i++)
+        {
+            float t = i / (float)Rate;
+            float tone = Mathf.Sin(2f * Mathf.PI * 2600f * t) + 0.45f * Mathf.Sin(2f * Mathf.PI * 3900f * t);
+            data[i] = tone * Mathf.Exp(-t * 75f) * Mathf.Clamp01(t / 0.0006f);
+        }
+        AddClick(data, 0f, 3400f, 0.35f, new System.Random(13));
+        return Finish("HitTick (synth)", data, 0.7f);
+    }
+
+    /// <summary>Your hit killed another player: a heavier, wet "thump / squish" (instead of the tick).</summary>
+    public static AudioClip KillThump()
+    {
+        var data = new float[Mathf.CeilToInt(Rate * 0.32f)];
+        var rng = new System.Random(17);
+        float low = 0f, mid = 0f;
+        for (int i = 0; i < data.Length; i++)
+        {
+            float t = i / (float)Rate;
+            float white = (float)(rng.NextDouble() * 2.0 - 1.0);
+            low += (white - low) * 0.08f;
+            mid += (white - mid) * 0.35f;
+            float thump = Mathf.Sin(2f * Mathf.PI * (55f + 110f * Mathf.Exp(-t * 25f)) * t) * Mathf.Exp(-t * 13f);
+            // The squish: a burst of muffled noise that wobbles (slightly wet), right after the thump starts.
+            float squish = low * (0.6f + 0.4f * Mathf.Sin(2f * Mathf.PI * 38f * t)) * Mathf.Exp(-Mathf.Abs(t - 0.03f) * 30f) * 3f;
+            float crunch = mid * Mathf.Exp(-t * 60f) * 0.5f;
+            data[i] = (thump * 1.1f + squish + crunch) * Mathf.Clamp01(t / 0.001f);
+        }
+        return Finish("KillThump (synth)", data, 0.9f);
     }
 
     /// <summary>Metallic click: noise snap + a short ring.</summary>

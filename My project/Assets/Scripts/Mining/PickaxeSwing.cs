@@ -194,6 +194,9 @@ public class PickaxeSwing : MonoBehaviour
     [Tooltip("Optional. Auto-found on a parent (the camera) if left empty.")]
     [SerializeField] private CameraShake cameraShake;
 
+    /// <summary>Raised when a swing starts: (0 = Right, 1 = Left, 2 = Overhead, seconds to the impact, seconds to the end).
+    /// Used to show the swing to other players.</summary>
+    public event Action<int, float, float> SwingStarted;
     /// <summary>Raised once per swing, at the strike key (the fastest point), hit or miss.</summary>
     public event Action ImpactReached;
     /// <summary>Raised when the strike actually hit a surface (after ReportImpact(true)).</summary>
@@ -277,6 +280,49 @@ public class PickaxeSwing : MonoBehaviour
                 s.swingDuration = s.ImpactTime + s.followThroughDuration * missFollowThroughMultiplier + s.recoveryDuration / recoverySpeed;
     }
 
+#if UNITY_EDITOR
+    /// <summary>
+    /// Editor only, used to bake what other players see of a swing: builds swing <paramref name="kind"/> (0 = Right,
+    /// 1 = Left, 2 = Overhead) from rest as a miss, without the random variation, through the same Swing() the game uses.
+    /// Returns its length; then <see cref="PreviewSwingAt"/> poses it at any time. Call with the pickaxe at rest; the caller
+    /// restores the transforms afterwards.
+    /// </summary>
+    public float BeginSwingPreview(int kind, out float impactTime)
+    {
+        baseRotation = transform.localRotation;
+        basePosition = transform.localPosition;
+        mountRotation = transform.parent != null ? transform.parent.localRotation : Quaternion.identity;
+        current = Resting;
+        currentVelocity = Pose.Zero;
+        phase = Phase.Idle;
+        nextSwing = kind;
+        float variation = swingVariation;
+        swingVariation = 0f;
+        Swing();
+        swingVariation = variation;
+        impactTime = impactKey >= 0 ? keys[impactKey].time : 0f;
+        return keys.Count > 0 ? keys[keys.Count - 1].time : 0f;
+    }
+
+    /// <summary>Editor only: poses the swing built by BeginSwingPreview at time t (seconds), with no idle sway.</summary>
+    public void PreviewSwingAt(float t)
+    {
+        current = keys.Count >= 2 ? Evaluate(t, out _) : Resting;
+        idleWeight = 0f;
+        vibrationTime = -1f;
+        ApplyPose(0f);
+    }
+
+    /// <summary>Editor only: back to idle after a preview.</summary>
+    public void EndSwingPreview()
+    {
+        keys.Clear();
+        phase = Phase.Idle;
+        current = Resting;
+        nextSwing = 0;
+    }
+#endif
+
     private SwingAnimation Get(int index) => index == 0 ? rightSwing : index == 1 ? leftSwing : overheadSwing;
 
     /// <summary>
@@ -331,6 +377,7 @@ public class PickaxeSwing : MonoBehaviour
         ComputeAutoVelocities();
 
         phase = Phase.WindUp;
+        SwingStarted?.Invoke(currentSwing, t + ta + ts, keys[keys.Count - 1].time);
         return true;
     }
 
