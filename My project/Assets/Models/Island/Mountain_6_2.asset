@@ -11,16 +11,16 @@ Mesh:
   m_SubMeshes:
   - serializedVersion: 2
     firstByte: 0
-    indexCount: 18
+    indexCount: 21
     topology: 0
     baseVertex: 0
     firstVertex: 0
-    vertexCount: 18
+    vertexCount: 21
     localAABB:
-      m_Center: {x: 635.396, y: 29.422256, z: 711.3392}
-      m_Extent: {x: 1.4686279, y: 1.668808, z: 1.0979004}
+      m_Center: {x: 635.7466, y: 29.999527, z: 711.3771}
+      m_Extent: {x: 2.2496338, y: 1.5521545, z: 1.3103943}
   - serializedVersion: 2
-    firstByte: 36
+    firstByte: 42
     indexCount: 0
     topology: 0
     baseVertex: 0
@@ -30,7 +30,37 @@ Mesh:
       m_Center: {x: 0, y: 0, z: 0}
       m_Extent: {x: 0, y: 0, z: 0}
   - serializedVersion: 2
-    firstByte: 36
+    firstByte: 42
+    indexCount: 0
+    topology: 0
+    baseVertex: 0
+    firstVertex: 0
+    vertexCount: 0
+    localAABB:
+      m_Center: {x: 0, y: 0, z: 0}
+      m_Extent: {x: 0, y: 0, z: 0}
+  - serializedVersion: 2
+    firstByte: 42
+    indexCount: 0
+    topology: 0
+    baseVertex: 0
+    firstVertex: 0
+    vertexCount: 0
+    localAABB:
+      m_Center: {x: 0, y: 0, z: 0}
+      m_Extent: {x: 0, y: 0, z: 0}
+  - serializedVersion: 2
+    firstByte: 42
+    indexCount: 0
+    topology: 0
+    baseVertex: 0
+    firstVertex: 0
+    vertexCount: 0
+    localAABB:
+      m_Center: {x: 0, y: 0, z: 0}
+      m_Extent: {x: 0, y: 0, z: 0}
+  - serializedVersion: 2
+    firstByte: 42
     indexCount: 0
     topology: 0
     baseVertex: 0
@@ -55,10 +85,10 @@ Mesh:
   m_KeepVertices: 0
   m_KeepIndices: 0
   m_IndexFormat: 0
-  m_IndexBuffer: 00000100020003000400050006000700080009000a000b000c000d000e000f0010001100y
+  m_IndexBuffer: 00000100020003000400050006000700080009000a000b000c000d000e000f0010001100120013001400y
   m_VertexData:
     serializedVersion: 3
-    m_VertexCount: 18
+    m_VertexCount: 21
     m_Channels:
     - stream: 0
       offset: 0
@@ -116,8 +146,8 @@ Mesh:
       offset: 0
       format: 0
       dimension: 0
-    m_DataSize: 504
-    _typelessdata: aca31e4494dbe741718f3144f9751f3fe96eb53ed28b32bfffffffffafdb1e4406aeee4132dd3144f9751f3fe96eb53ed28b32bfffffffff3af91e441007de41e5b33144f9751f3fe96eb53ed28b32bfffffffffaca31e4494dbe741718f3144d97af73ebf85033fba7435bfffffffff5a7b1e443e86f241ccb13144d97af73ebf85033fba7435bfffffffffafdb1e4406aeee4132dd3144d97af73ebf85033fba7435bfffffffff3af91e441007de41e5b33144c054fd3ee60bb63e7efe4abfffffffffafdb1e4406aeee4132dd3144c054fd3ee60bb63e7efe4abfffffffff56371f44d0d5ea4198083244c054fd3ee60bb63e7efe4abfffffffff5a7b1e443e86f241ccb131447c4ff73e9574093f301031bfffffffff5ebe1e4480baf841210732447c4ff73e9574093f301031bfffffffffafdb1e4406aeee4132dd31447c4ff73e9574093f301031bfffffffffafdb1e4406aeee4132dd3144479bfe3ee7c4c43ebd1f47bfffffffffb3131f447a80f541f91b3244479bfe3ee7c4c43ebd1f47bfffffffff56371f44d0d5ea4198083244479bfe3ee7c4c43ebd1f47bfffffffffafdb1e4406aeee4132dd3144fac1b23edec2073f48c745bfffffffff5ebe1e4480baf84121073244fac1b23edec2073f48c745bfffffffffb3131f447a80f541f91b3244fac1b23edec2073f48c745bfffffffff
+    m_DataSize: 588
+    _typelessdata: 9aad1e443894e341448431444cc40f3f6477e73efa6731bfffffffff9a8e1e44e83eee41d0a231444cc40f3f6477e73efa6731bfffffffffcdd81e440066e8416dc031444cc40f3f6477e73efa6731bfffffffff9a8e1e44e83eee41d0a23144a37a0e3ff97ade3ee74635bfffffffff9ad91e44d869f4410afc3144a37a0e3ff97ade3ee74635bfffffffffcdd81e440066e8416dc03144a37a0e3ff97ade3ee74635bfffffffffcdd81e440066e8416dc031448e46063fe72fb33e80b146bffffffffff0241f445834f141a51332448e46063fe72fb33e80b146bfffffffffc23f1f44a8a0e741390332448e46063fe72fb33e80b146bfffffffffcdd81e440066e8416dc03144fa59d03ee03ef53e9f1d47bfffffffff9ad91e44d869f4410afc3144fa59d03ee03ef53e9f1d47bffffffffff0241f445834f141a5133244fa59d03ee03ef53e9f1d47bfffffffffce5f1e44089cf74154d23144df20be3efd880e3f94373ebfffffffff9ad91e44d869fc41ff2b3244df20be3efd880e3f94373ebfffffffff9ad91e44d869f4410afc3144df20be3efd880e3f94373ebfffffffffc23f1f44a8a0e7413903324442a1ef3e3d75ad3e31f250bffffffffff0241f445834f141a513324442a1ef3e3d75ad3e31f250bfffffffffc27f1f44a8a0e741ec27324442a1ef3e3d75ad3e31f250bfffffffff9ad91e44d869f4410afc3144fb13d43e2fb90b3ffa763abfffffffff9ad91e44d869fc41ff2b3244fb13d43e2fb90b3ffa763abffffffffff0241f445834f141a5133244fb13d43e2fb90b3ffa763abfffffffff
   m_CompressedMesh:
     m_Vertices:
       m_NumItems: 0
@@ -171,8 +201,8 @@ Mesh:
       m_BitSize: 0
     m_UVInfo: 0
   m_LocalAABB:
-    m_Center: {x: 635.396, y: 29.422256, z: 711.3392}
-    m_Extent: {x: 1.4686279, y: 1.668808, z: 1.0979004}
+    m_Center: {x: 635.7466, y: 29.999527, z: 711.3771}
+    m_Extent: {x: 2.2496338, y: 1.5521545, z: 1.3103943}
   m_CookingOptions: 30
   m_PreBakeConvexCollisionMesh: 0
   m_PreBakeTriangleCollisionMesh: 0
@@ -194,6 +224,21 @@ Mesh:
       m_LodBias: 0
     m_NumLevels: 1
     m_SubMeshes:
+    - serializedVersion: 2
+      m_Levels:
+      - serializedVersion: 1
+        m_IndexStart: 0
+        m_IndexCount: 0
+    - serializedVersion: 2
+      m_Levels:
+      - serializedVersion: 1
+        m_IndexStart: 0
+        m_IndexCount: 0
+    - serializedVersion: 2
+      m_Levels:
+      - serializedVersion: 1
+        m_IndexStart: 0
+        m_IndexCount: 0
     - serializedVersion: 2
       m_Levels:
       - serializedVersion: 1

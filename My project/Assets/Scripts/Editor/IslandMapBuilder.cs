@@ -19,7 +19,7 @@ using Debug = UnityEngine.Debug;
 /// Props, Lighting, MiningRocks, Zones, the terrain holes under the cave, and the path.
 /// The first build backs up the terrain asset to Assets/Backups.
 /// </summary>
-public static class IslandMapBuilder
+public static partial class IslandMapBuilder
 {
     private const string MeshFolder = "Assets/Models/Island";
     private const string MaterialFolder = "Assets/Materials/Island";
@@ -56,10 +56,12 @@ public static class IslandMapBuilder
         var cave = island.Find("Cave") != null ? island.Find("Cave").GetComponent<CaveLayout>() : null;
         if (mountain == null) mountain = CreateMountain(island, terrain);
         if (cave == null) cave = CreateCave(island, terrain);
+        log.AppendLine(AddMineNetwork(cave)); // the mine network around the original route (only spaces that are missing)
         cave.Prepare();
 
         BackupTerrain(terrain, log);
-        Material[] rockMaterials = { RockMaterial("Mountain_Rock", 0), RockMaterial("Cave_Rock", 1), RockMaterial("Cave_Rock_Deep", 2) };
+        Material[] rockMaterials = { RockMaterial("Mountain_Rock", 0), RockMaterial("Cave_Rock", 1), RockMaterial("Cave_Rock_Deep", 2),
+                                     RockMaterial("Cave_Rock_DeepMine", 3), RockMaterial("Cave_Rock_Crystal", 4), RockMaterial("Cave_Rock_Rift", 5) }; // 3-5: one per mine (Mine 2-4)
         Transform generated = Child(mountain.transform, "Generated");
         Clear(generated);
         log.AppendLine(GenerateMesh(mountain, cave, terrain, generated, rockMaterials));
@@ -181,7 +183,7 @@ public static class IslandMapBuilder
     {
         foreach (CaveSpace s in cave.GetComponentsInChildren<CaveSpace>())
         {
-            if (!FloorShapes.TryGetValue(s.name, out var f)) continue;
+            if (!FloorShapes.TryGetValue(s.name, out var f) && !MineFloorShapes.TryGetValue(s.name, out f)) continue;
             Undo.RecordObject(s, "Floor Shapes");
             s.SetFloorShape(f.roll, f.steps, f.share, f.plateau, f.offset, f.radius, f.ramp);
             EditorUtility.SetDirty(s);
@@ -264,9 +266,12 @@ public static class IslandMapBuilder
         }
         else
         {
-            bool deep = kind == 2;
+            bool deep = kind >= 2;
             m.SetFloat("_Gradient", 0f); // one colour: Ground Color
-            m.SetColor("_GroundColor", deep ? new Color(0.3f, 0.3f, 0.36f) : new Color(0.34f, 0.29f, 0.25f));
+            // 1 warm rock (hub, Old Mine), 2 deep blue-grey, 3 Deep Mine steel grey, 4 Crystal blue-violet, 5 Rift near-black.
+            Color[] colours = { Color.white, new Color(0.34f, 0.29f, 0.25f), new Color(0.3f, 0.3f, 0.36f), new Color(0.27f, 0.28f, 0.3f),
+                                new Color(0.24f, 0.27f, 0.4f), new Color(0.13f, 0.11f, 0.12f) };
+            m.SetColor("_GroundColor", colours[Mathf.Clamp(kind, 1, 5)]);
             m.SetFloat("_TOPPROJECTIONONOFF", 0f); m.DisableKeyword("_TOPPROJECTIONONOFF_ON");
             m.SetFloat("_OREEMISSIONONOFF", 0f); // no glowing ore painted on the walls
             // Kept modest: brighter values blow out to flat white patches with the bloom.
@@ -340,7 +345,7 @@ public static class IslandMapBuilder
         public readonly List<Vector3> v = new List<Vector3>();
         public readonly List<Vector3> n = new List<Vector3>();
         public readonly List<Color32> c = new List<Color32>();
-        public readonly List<int>[] i = { new List<int>(), new List<int>(), new List<int>() };
+        public readonly List<int>[] i = { new List<int>(), new List<int>(), new List<int>(), new List<int>(), new List<int>(), new List<int>() };
     }
 
     private static string GenerateMesh(MountainShape mountain, CaveLayout cave, Terrain terrain, Transform parent, Material[] materials)
@@ -422,7 +427,7 @@ public static class IslandMapBuilder
             if (!inCave && Mathf.Max(a.y, Mathf.Max(b.y, c.y)) < terrain.SampleHeight(centre) + terrainY - 1f) { culled++; return; } // under the ground
             // The open-air ravine floor uses the cave rock too (the mountain material would grow grass on it).
             bool ravineFloor = !inCave && normal.y > 0.5f && cave.Distance(centre) < 2.5f;
-            int sub = inCave ? (depth >= 0.55f ? 2 : 1) : ravineFloor ? 1 : 0;
+            int sub = inCave ? CaveSubmesh(nearest, depth) : ravineFloor ? 1 : 0;
             var key = new Vector2Int(Mathf.FloorToInt((centre.x - min.x) / ChunkSize), Mathf.FloorToInt((centre.z - min.z) / ChunkSize));
             if (!chunks.TryGetValue(key, out Chunk chunk)) chunks[key] = chunk = new Chunk();
             int start = chunk.v.Count;
@@ -469,8 +474,8 @@ public static class IslandMapBuilder
             mesh.SetVertices(ch.v);
             mesh.SetNormals(ch.n);
             mesh.SetColors(ch.c);
-            mesh.subMeshCount = 3;
-            for (int s = 0; s < 3; s++) mesh.SetTriangles(ch.i[s], s, false);
+            mesh.subMeshCount = ch.i.Length;
+            for (int s = 0; s < ch.i.Length; s++) mesh.SetTriangles(ch.i[s], s, false);
             mesh.RecalculateBounds();
             mesh = SaveMesh(mesh, $"{MeshFolder}/{name}.asset");
             vertexTotal += ch.v.Count;
@@ -832,8 +837,8 @@ public static class IslandMapBuilder
         GameObject crateGo = crates.Build("Crates", entranceProps, crateBase, "Crates");
         crateGo.AddComponent<BoxCollider>().center = new Vector3(0.55f, 0.6f, 0.15f);
         crateGo.GetComponent<BoxCollider>().size = new Vector3(2.3f, 1.2f, 1.4f);
-        Sign(d, entranceProps, new Vector3(Plaza.x + 12f, 0f, Plaza.y - 2f), "ORE WHAT? MINING CO.\nMINE No. 1", terrain);
-        Sign(d, Child(props, "Path"), new Vector3(PathPoints[0].x + 5f, 0f, PathPoints[0].y + 8f), "THE MINE\nstraight ahead", terrain);
+        Sign(d, entranceProps, new Vector3(Plaza.x + 12f, 0f, Plaza.y - 2f), "ORE WHAT? MINING CO.\nCENTRAL MINING HUB", terrain);
+        Sign(d, Child(props, "Path"), new Vector3(PathPoints[0].x + 5f, 0f, PathPoints[0].y + 8f), "MINING HUB\nstraight ahead", terrain);
 
         // Lamps: two at the mouth (lit), unlit lanterns along the path.
         foreach (float sgn in new[] { -1f, 1f })
@@ -889,6 +894,9 @@ public static class IslandMapBuilder
             { "BossArena", new[] { crystalOre, crystalOre } },
         };
         var crystalPlan = new Dictionary<string, int> { { "MiningArea_02", 1 }, { "CombatArea", 1 }, { "DeepCavern", 2 }, { "BossArena", 3 } };
+        // The mine network's spaces (IslandMapBuilder.MineDressing.cs).
+        foreach (var kv in MineLampPlan) lampPlan[kv.Key] = kv.Value;
+        foreach (var kv in MineRocks(copper, iron, gold, crystalOre)) rockPlan[kv.Key] = kv.Value;
         Transform caveLights = Child(lighting, "Cave"), caveProps = Child(props, "Cave");
         var missed = new List<string>();
         int seed = 1;
@@ -897,7 +905,7 @@ public static class IslandMapBuilder
             if (s.SpaceKind == CaveSpace.Kind.OpenCut) continue;
             var rnd = new System.Random(1000 + seed++ * 7919);
             float depth = s.DepthAt(0.5f);
-            Color lampColor = s.name == "BossArena" ? new Color(1f, 0.38f, 0.22f) : Color.Lerp(new Color(1f, 0.76f, 0.46f), new Color(1f, 0.55f, 0.28f), depth);
+            Color lampColor = MineLampColor(s.name, s.name == "BossArena" ? new Color(1f, 0.38f, 0.22f) : Color.Lerp(new Color(1f, 0.76f, 0.46f), new Color(1f, 0.55f, 0.28f), depth));
             float range = s.SpaceKind == CaveSpace.Kind.Room ? Mathf.Clamp(Mathf.Max(s.Size.x, s.Size.z) * 0.9f, 16f, 28f) : 18f;
             Vector3 centre = s.SpaceKind == CaveSpace.Kind.Room ? s.transform.position : (s.transform.position + s.End.position) * 0.5f;
 
@@ -905,7 +913,7 @@ public static class IslandMapBuilder
             {
                 Transform group = Child(caveLights, s.name);
                 for (int i = 0; i < lampCount; i++)
-                    if (d.Spot(s, rnd, 0.62f, 0.85f, out Vector3 floor)) d.Lamp(group, floor, centre, lampColor, 9f, range, true);
+                    if (d.Spot(s, rnd, 0.62f, 0.85f, out Vector3 floor)) d.Lamp(group, floor, centre, lampColor, IsMineSpace(s.name) ? MineLampIntensity(depth) : 9f, range, true);
                     else missed.Add(s.name + " lamp");
             }
             if (rockPlan.TryGetValue(s.name, out ItemData[] ores))
@@ -954,7 +962,8 @@ public static class IslandMapBuilder
                 z.Set(kind, tier, s.SpaceKind == CaveSpace.Kind.Room ? Mathf.Max(s.Size.x, s.Size.z) : s.Size.x * 2f, $"Generated for {s.name} (depth {depth:F2}).");
             }
         }
-        string arena = DressBossArena(d, Space("BossArena"), Space("BossGate"), Child(props, "BossArena"), Child(lighting, "BossArena"));
+        missed.AddRange(DressMineNetwork(d, spaces, props, lighting, zones));
+        string arena = DressBossArena(d, Space("BossArena"), Space("BossGate") ?? Space("OldMine_ArenaGate"), Child(props, "BossArena"), Child(lighting, "BossArena"));
         if (arena != null) missed.Add(arena);
 
         var start = new GameObject("PlayerStart").AddComponent<MapZone>();
@@ -1231,18 +1240,84 @@ public static class IslandMapBuilder
         sign.Box(new Vector3(0f, 1.1f, 0.1f), Quaternion.identity, new Vector3(0.15f, 2.2f, 0.15f), 0);
         sign.Box(new Vector3(0f, 1.95f, 0f), Quaternion.identity, new Vector3(2.4f, 0.9f, 0.08f), 0);
         GameObject go = sign.Build("Sign", parent, at, "Sign_" + Mathf.RoundToInt(at.z));
-        var label = new GameObject("Text", typeof(TextMesh));
-        label.transform.SetParent(go.transform, false);
-        label.transform.localPosition = new Vector3(0f, 1.95f, -0.05f);
-        var tm = label.GetComponent<TextMesh>();
-        tm.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        tm.text = text;
-        tm.fontSize = 64;
-        tm.characterSize = 0.035f;
-        tm.anchor = TextAnchor.MiddleCenter;
-        tm.alignment = TextAlignment.Center;
-        tm.fontStyle = FontStyle.Bold;
-        tm.color = new Color(1f, 0.92f, 0.75f);
-        label.GetComponent<MeshRenderer>().sharedMaterial = tm.font.material;
+        SignText(go.transform, text, false, 0.035f);
+    }
+
+    private const float SignBoardHeight = 1.95f; // centre of a sign's board (2.4 x 0.9 x 0.08 m, a 0.15 m post behind it)
+
+    /// <summary>
+    /// The text on a sign board: the front text just in front of the board's -Z face, the back text (optional) just
+    /// behind the post, turned round so it reads correctly from behind. Never on the same plane, and each is drawn
+    /// from its own side only and hidden by anything in front of it (SignText material). Shrunk to fit the board.
+    /// </summary>
+    private static void SignText(Transform sign, string text, bool backToo, float characterSize = 0f)
+    {
+        Material material = SignTextMaterial();
+        Font font = Resources.GetBuiltinResource<Font>(SignTextFont.FontName);
+        foreach (bool back in backToo ? new[] { false, true } : new[] { false })
+        {
+            var label = new GameObject(back ? "Text (back)" : "Text", typeof(TextMesh));
+            label.transform.SetParent(sign, false);
+            // Board faces at z = -0.04 / +0.04, post's back at +0.175: 2 cm clear of each.
+            label.transform.localPosition = new Vector3(0f, SignBoardHeight, back ? 0.195f : -0.06f);
+            if (back) label.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            var tm = label.GetComponent<TextMesh>();
+            tm.font = font;
+            tm.text = text;
+            tm.fontSize = 64;
+            tm.characterSize = characterSize > 0f ? characterSize : text.Split('\n').Length > 2 ? 0.026f : 0.033f;
+            tm.anchor = TextAnchor.MiddleCenter;
+            tm.alignment = TextAlignment.Center;
+            tm.fontStyle = FontStyle.Bold;
+            tm.color = new Color(1f, 0.92f, 0.75f);
+            var renderer = label.GetComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            // Long lines: shrink until the text fits on the board (2.4 x 0.9 m, with a small margin).
+            Vector2 size = TextSize(tm);
+            float fit = Mathf.Min(1f, 2.2f / Mathf.Max(0.01f, size.x), 0.8f / Mathf.Max(0.01f, size.y));
+            if (fit < 1f) tm.characterSize *= fit;
+        }
+    }
+
+    /// <summary>The size (metres, at scale 1) a TextMesh's text takes, from the font's glyph metrics.</summary>
+    private static Vector2 TextSize(TextMesh tm)
+    {
+        string[] lines = tm.text.Split('\n');
+        tm.font.RequestCharactersInTexture(tm.text, tm.fontSize, tm.fontStyle);
+        float widest = 0f;
+        foreach (string line in lines)
+        {
+            float w = 0f;
+            foreach (char c in line)
+                if (tm.font.GetCharacterInfo(c, out CharacterInfo info, tm.fontSize, tm.fontStyle)) w += info.advance;
+            widest = Mathf.Max(widest, w);
+        }
+        // TextMesh: one font pixel = characterSize / 10 world units; line height = font line height.
+        float scale = tm.characterSize * 0.1f;
+        float lineHeight = tm.font.lineHeight > 0 ? tm.font.lineHeight * tm.fontSize / Mathf.Max(1f, tm.font.fontSize) : tm.fontSize * 1.15f;
+        return new Vector2(widest * scale, lines.Length * lineHeight * scale);
+    }
+
+    /// <summary>The sign text material (Assets/Resources/SignText.mat), made on first use; its texture is the font's.</summary>
+    private static Material SignTextMaterial()
+    {
+        string path = $"Assets/Resources/{SignTextFont.MaterialName}.mat";
+        Shader shader = Shader.Find("Ore What/Sign Text");
+        var material = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (material == null)
+        {
+            material = new Material(shader) { name = SignTextFont.MaterialName };
+            AssetDatabase.CreateAsset(material, path);
+        }
+        Font font = Resources.GetBuiltinResource<Font>(SignTextFont.FontName);
+        if (material.shader != shader || material.mainTexture != font.material.mainTexture)
+        {
+            material.shader = shader;
+            material.mainTexture = font.material.mainTexture;
+            EditorUtility.SetDirty(material);
+        }
+        return material;
     }
 }
