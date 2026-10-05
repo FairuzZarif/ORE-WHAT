@@ -57,6 +57,7 @@ public static partial class IslandMapBuilder
         if (mountain == null) mountain = CreateMountain(island, terrain);
         if (cave == null) cave = CreateCave(island, terrain);
         log.AppendLine(AddMineNetwork(cave)); // the mine network around the original route (only spaces that are missing)
+        InitializeCaveGeology(cave);
         cave.Prepare();
 
         BackupTerrain(terrain, log);
@@ -70,6 +71,7 @@ public static partial class IslandMapBuilder
         log.AppendLine(EditTerrain(terrain, mountain, cave));
         log.AppendLine(Dress(island, mountain, cave, terrain, generated));
         log.AppendLine(OreSpawnSetup.Rebuild(cave));
+        log.AppendLine(DressCaveGeology(cave));
 
         if (RenderSettings.fogDensity > MaxFogDensity)
         {

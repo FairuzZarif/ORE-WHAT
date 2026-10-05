@@ -30,6 +30,28 @@ public static class WorldNoise
     public static float Signed2(Vector3 p, int seed)
         => (Value(p, seed) * 0.65f + Value(p * 2.03f, seed + 17) * 0.35f) * 2f - 1f;
 
+    /// <summary>Piecewise planar tetrahedral noise. Broad rock faces have hard changes of slope, without texture noise.</summary>
+    public static float Faceted(Vector3 p, int seed)
+    {
+        int x = Mathf.FloorToInt(p.x), y = Mathf.FloorToInt(p.y), z = Mathf.FloorToInt(p.z);
+        float fx = p.x - x, fy = p.y - y, fz = p.z - z;
+        float start = Hash(x, y, z, seed), end = Hash(x + 1, y + 1, z + 1, seed);
+        float a, b, first, second, third;
+        if (fx >= fy)
+        {
+            if (fy >= fz) { a = Hash(x + 1, y, z, seed); b = Hash(x + 1, y + 1, z, seed); first = fx; second = fy; third = fz; }
+            else if (fx >= fz) { a = Hash(x + 1, y, z, seed); b = Hash(x + 1, y, z + 1, seed); first = fx; second = fz; third = fy; }
+            else { a = Hash(x, y, z + 1, seed); b = Hash(x + 1, y, z + 1, seed); first = fz; second = fx; third = fy; }
+        }
+        else
+        {
+            if (fx >= fz) { a = Hash(x, y + 1, z, seed); b = Hash(x + 1, y + 1, z, seed); first = fy; second = fx; third = fz; }
+            else if (fy >= fz) { a = Hash(x, y + 1, z, seed); b = Hash(x, y + 1, z + 1, seed); first = fy; second = fz; third = fx; }
+            else { a = Hash(x, y, z + 1, seed); b = Hash(x, y + 1, z + 1, seed); first = fz; second = fy; third = fx; }
+        }
+        return (start + (a - start) * first + (b - a) * second + (end - b) * third) * 2f - 1f;
+    }
+
     /// <summary>Smooth minimum (blends two distance fields with radius k).</summary>
     public static float SMin(float a, float b, float k)
     {

@@ -1,5 +1,7 @@
 # Old Mine boss arena environment
 
+The subsequent [cave geometry pass](CaveGeometry.md) adds angular shell and perimeter/ceiling formations while retaining this arena's open combat disk and layout.
+
 Implemented 2026-10-04. Environment only; no boss, enemies, encounter scripting, progression gates, or cutscenes. No Git commit was made.
 
 ## Location and scale

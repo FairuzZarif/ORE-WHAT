@@ -6,6 +6,8 @@ Early prototype. The island map has a Central Mining Hub and four mines, multipl
 
 See [Ore distribution and respawning](Docs/OreDistribution.md) for socket counts, resource progression, economy settings, tuning and validation results.
 
+See [Cave geometry and geology](Docs/CaveGeometry.md) for the angular cave pass, before/after views, geometry budget and traversal checks.
+
 ## Playing it
 **Play in the Editor:** open `My project/` in Unity 6000.6.3f1 and press Play on `Assets/Scenes/PlayerTest.unity`.
 

@@ -229,9 +229,19 @@ public static class OldMineArtReview
     }
 
     // Called in Play Mode; camera and headlamp remain the actual player's components.
-    public static string CaptureSections()
+    public static string CaptureSections(string referencePoses = null)
     {
         if (!EditorApplication.isPlaying) return "Enter Play Mode first.";
+        var poses = new Dictionary<string, Vector3>();
+        if (!string.IsNullOrEmpty(referencePoses) && File.Exists(referencePoses))
+            foreach (string line in File.ReadAllLines(referencePoses))
+            {
+                int split = line.IndexOf(" camera=");
+                if (split < 0) continue;
+                string[] axes = line.Substring(split + 8).Trim('(', ')').Split(',');
+                var culture = System.Globalization.CultureInfo.InvariantCulture;
+                poses[line.Substring(0, split)] = new Vector3(float.Parse(axes[0], culture), float.Parse(axes[1], culture), float.Parse(axes[2], culture));
+            }
         var player = GameObject.FindWithTag("Player"); var cc = player.GetComponent<CharacterController>();
         var camera = player.GetComponentsInChildren<Camera>().First(c => c.name == "PlayerCamera");
         var cave = UnityEngine.Object.FindAnyObjectByType<CaveLayout>(); var generated = cave.transform.parent.Find("Mountain/Generated");
@@ -251,6 +261,10 @@ public static class OldMineArtReview
                 if (n == "OldMine_BossThreshold") { at = new Vector3(429.1f, -20.1f, 693.1f); aim = new Vector3(418, -18.75f, 711); }
                 if (!NavMesh.SamplePosition(at + Vector3.up, out NavMeshHit hit, 5f, NavMesh.AllAreas)) { log.AppendLine("No safe camera floor " + n); continue; }
                 cc.enabled = false; player.transform.position = hit.position + Vector3.up * .1f; cc.enabled = true;
+                if (poses.TryGetValue(n, out Vector3 reference))
+                {
+                    cc.enabled = false; player.transform.position = reference - Vector3.up * 1.6f; cc.enabled = true;
+                }
                 Vector3 look = aim + Vector3.up * 1.5f - (player.transform.position + Vector3.up * 1.6f);
                 player.transform.rotation = Quaternion.LookRotation(new Vector3(look.x, 0, look.z));
                 camera.transform.position = player.transform.position + Vector3.up * 1.6f; camera.transform.rotation = Quaternion.LookRotation(look);

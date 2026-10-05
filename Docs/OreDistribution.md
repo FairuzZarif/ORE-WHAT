@@ -18,11 +18,13 @@ Counts after **Build Or Rebuild Island Map** on the current authored map:
 
 | Mine | Potential sockets | Active target | Copper compatible | Iron compatible | Gold compatible | Crystal compatible |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Old Mine | 273 | 30 | 148 | 125 | 138 | 0 |
-| Deep Mine | 104 | 24 | 63 | 41 | 82 | 0 |
-| Crystal Caverns | 80 | 20 | 48 | 32 | 69 | 28 |
-| The Rift | 161 | 20 | 92 | 69 | 153 | 120 |
-| Total | 618 | 94 | 351 | 267 | 442 | 148 |
+| Old Mine | 295 | 30 | 148 | 147 | 150 | 0 |
+| Deep Mine | 112 | 24 | 57 | 55 | 84 | 0 |
+| Crystal Caverns | 81 | 20 | 48 | 33 | 71 | 26 |
+| The Rift | 175 | 20 | 92 | 83 | 167 | 128 |
+| Total | 663 | 94 | 345 | 318 | 472 | 154 |
+
+Socket counts above reflect the subsequent [cave geometry pass](CaveGeometry.md). That pass also reserves all potential sockets and standing approaches from its new wall, ceiling and rubble dressing. Population and economy configuration remain the same.
 
 Compatibility columns overlap: a deep ground socket can permit Copper and Gold, for example. Many Gold-compatible sockets do not imply many active Gold nodes; resource selection precedes socket selection and explicit caps apply. The expanded Old Mine needs more potential locations than the prompt's smaller 70–100 example.
 

@@ -480,7 +480,8 @@ public static partial class IslandMapBuilder
         Vector3 side = Vector3.Cross(Vector3.up, dir);
         Quaternion facing = Quaternion.LookRotation(dir);
         int sets = 0;
-        for (float along = 5f; along < length - 4f; along += spacing)
+        for (float along = 4f + WorldNoise.Value(a * .1f, 173) * 3f; along < length - 4f;
+             along += spacing * Mathf.Lerp(.84f, 1.18f, WorldNoise.Value((a + dir * along) * .17f, 193)))
         {
             Vector3 p = Vector3.Lerp(a, b, along / length);
             if (!RockRay(d, p + Vector3.up * 3f, Vector3.down, 8f, out RaycastHit floorHit)) continue;
@@ -490,11 +491,20 @@ public static partial class IslandMapBuilder
             float span = Vector3.Distance(left.point, right.point);
             if (span > maxSpan || span < 3f) continue;
             float top = RockRay(d, f + Vector3.up * 1f, Vector3.up, 14f, out RaycastHit ceiling) ? ceiling.point.y - 0.4f : f.y + 4.4f;
-            top = Mathf.Min(top, f.y + 4.4f);
+            top = Mathf.Min(top, f.y + 7.2f); // let maintained frames actually reach the newly angular ceiling
             if (top - f.y < 2.8f) continue;
 
             Vector3 footL = left.point - side * -0.35f, footR = right.point - side * 0.35f; // a little in from each wall
             footL.y = GroundY(d, footL); footR.y = GroundY(d, footR);
+            // Fit the entire cap, including its depth, below the rock. A centre-only ceiling ray
+            // embeds the ends of a tall frame in the sloping shoulders of the tunnel.
+            for (int sample = 0; sample <= 8; sample++)
+                foreach (float offset in new[] { -.3f, 0f, .3f })
+                {
+                    Vector3 probe = Vector3.Lerp(footL, footR, sample / 8f) + dir * offset + Vector3.up;
+                    if (RockRay(d, probe, Vector3.up, 14f, out RaycastHit roof)) top = Mathf.Min(top, roof.point.y - .4f);
+                }
+            if (top - Mathf.Max(footL.y, footR.y) < 2.8f) continue;
             bool broken = rnd.NextDouble() < damaged;
             int kind = broken ? rnd.Next(3) : -1;
             var set = new GameObject("Timber Set").transform;
@@ -553,10 +563,20 @@ public static partial class IslandMapBuilder
             frame.SetParent(parent, false);
             frame.position = at;
             Vector3 footL = l.point + side * 0.45f, footR = r.point - side * 0.45f;
+            if (span <= 13f)
+                for (int sample = 0; sample <= 8; sample++)
+                    foreach (float offset in new[] { -.45f, 0f, .45f })
+                    {
+                        Vector3 probe = Vector3.Lerp(footL, footR, sample / 8f) + inward * offset;
+                        probe.y = GroundY(d, probe) + 1f;
+                        if (RockRay(d, probe, Vector3.up, 16f, out RaycastHit roof)) top = Mathf.Min(top, roof.point.y - .9f);
+                    }
             foreach (Vector3 foot0 in new[] { footL, footR })
             {
                 Vector3 foot = foot0; foot.y = GroundY(d, foot);
-                Piece("Posts/Post_Reinforced_A", frame, foot - Vector3.up * 0.15f, facing, new Vector3(2.4f, (top - foot.y + 0.2f) / 3.8f, 2.4f), true);
+                float postTop = top;
+                if (span > 13f && RockRay(d, foot + Vector3.up, Vector3.up, 16f, out RaycastHit roof)) postTop = roof.point.y - .15f;
+                Piece("Posts/Post_Reinforced_A", frame, foot - Vector3.up * 0.15f, facing, new Vector3(2.4f, (postTop - foot.y + 0.2f) / 3.8f, 2.4f), true);
             }
             if (span <= 13f && top - at.y > 3f)
             {

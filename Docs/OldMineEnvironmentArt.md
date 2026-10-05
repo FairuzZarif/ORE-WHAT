@@ -1,5 +1,7 @@
 # Old Mine environment art pass
 
+The subsequent [cave geometry pass](CaveGeometry.md) changes the shell silhouettes, adds shared geology formations and fits supports to the new roof. The counts and screenshots below describe this earlier dressing pass.
+
 This pass extends the generated Old Mine in `PlayerTest`. Its rooms, tunnels, elevations, side routes, old-incline shortcut and endpoint are preserved. No player, mining, inventory, weapon, animation or networking code was changed. All environmental placements regenerate through **Ore What → Island Map → Build Or Rebuild Island Map**. Nothing was committed.
 
 ## Existing assets inspected and reused
