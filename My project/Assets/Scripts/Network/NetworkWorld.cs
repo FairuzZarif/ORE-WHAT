@@ -8,7 +8,8 @@ using UnityEngine;
 ///
 ///   Rocks   a player's hit is sent to the host, which applies it once (two players can mine the same
 ///           rock; each hit counts once) and tells everyone; a broken rock goes into BrokenRocks, so it is
-///           also gone for players who join later. The rocks stay ordinary scene objects (no NetworkObject):
+///           also gone for players who join later. DamagedRocks persists partial durability for late joins.
+///           The rocks stay ordinary scene objects (no NetworkObject):
 ///           they are found by their place in the scene hierarchy, which is the same in every copy of the game.
 ///   Items   only the host spawns shared items (ore drops, drops, throws: everything goes through ItemDrops).
 ///           Picking one up asks the host, which hands it to the first player who asks and removes it.
@@ -32,6 +33,16 @@ public class NetworkWorld : NetworkBehaviour, IWorldNetwork
     /// <summary>Rocks broken so far (their ids). Late joiners break these when they arrive.</summary>
     private readonly NetworkList<int> brokenRocks = new NetworkList<int>();
 
+    public struct RockDurability : INetworkSerializable, System.IEquatable<RockDurability>
+    {
+        public int id, health;
+        public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
+        { serializer.SerializeValue(ref id); serializer.SerializeValue(ref health); }
+        public bool Equals(RockDurability other) => id == other.id && health == other.health;
+    }
+    // Persistent partial damage, so a late join receives the same state as existing clients.
+    private readonly NetworkList<RockDurability> damagedRocks = new NetworkList<RockDurability>();
+
     private readonly Dictionary<int, RockHealth> rocksById = new Dictionary<int, RockHealth>();
     private readonly Dictionary<RockHealth, int> idsByRock = new Dictionary<RockHealth, int>();
 
@@ -46,13 +57,18 @@ public class NetworkWorld : NetworkBehaviour, IWorldNetwork
         WorldNetwork.Current = this;
         IndexRocks();
         brokenRocks.OnListChanged += OnBrokenRocksChanged;
+        damagedRocks.OnListChanged += OnDurabilityChanged;
         if (!IsServer)
+        {
+            foreach (RockDurability state in damagedRocks) ShowDurability(state, false);
             foreach (int id in brokenRocks) BreakLocally(id);
+        }
     }
 
     public override void OnNetworkDespawn()
     {
         brokenRocks.OnListChanged -= OnBrokenRocksChanged;
+        damagedRocks.OnListChanged -= OnDurabilityChanged;
         if (Instance == this) Instance = null;
         if (ReferenceEquals(WorldNetwork.Current, this)) WorldNetwork.Current = null;
     }
@@ -98,7 +114,7 @@ public class NetworkWorld : NetworkBehaviour, IWorldNetwork
     public void RequestRockHit(RockHealth rock, int damage)
     {
         if (rock != null && idsByRock.TryGetValue(rock, out int id)) RockHitRpc(id, damage);
-        else if (rock != null && IsServer) rock.ApplyDamage(damage); // not indexed (spawned later): host-only rock
+        // Runtime-spawned nodes must be indexed by the world; never create unsynchronized host-only damage.
     }
 
     [Rpc(SendTo.Server)]
@@ -106,15 +122,40 @@ public class NetworkWorld : NetworkBehaviour, IWorldNetwork
     {
         if (damage < 1 || damage > maxRockDamage) return;
         if (!rocksById.TryGetValue(id, out RockHealth rock) || rock == null || rock.CurrentHealth <= 0) return;
+        // The host checks the sender's equipped capability, rather than trusting a claimed damage type.
+        if (!NetworkManager.ConnectedClients.TryGetValue(rpcParams.Receive.SenderClientId, out NetworkClient client)
+            || client.PlayerObject == null) return;
+        var avatar = client.PlayerObject.GetComponent<NetworkPlayerAvatar>();
+        ItemData held = avatar != null ? ItemAt(avatar.HeldItemIndex) : null;
+        if (held == null || !held.CanMine) return;
+        var equipment = FindAnyObjectByType<PlayerEquipment>();
+        var tool = equipment != null ? equipment.ControllerFor(held) as MiningToolController : null;
+        if (tool == null || damage != tool.DamagePerHit) return;
 
-        if (rock.ApplyDamage(damage)) brokenRocks.Add(id); // broken: the list change breaks it for everyone else
-        else RockHitShownRpc(id, rock.CurrentHealth);
+        int index = -1;
+        for (int i = 0; i < damagedRocks.Count; i++) if (damagedRocks[i].id == id) { index = i; break; }
+        if (rock.ApplyMiningDamage(damage))
+        {
+            if (index >= 0) damagedRocks.RemoveAt(index);
+            brokenRocks.Add(id);
+        }
+        else
+        {
+            var state = new RockDurability { id = id, health = rock.CurrentHealth };
+            if (index < 0) damagedRocks.Add(state);
+            else damagedRocks[index] = state;
+        }
     }
 
-    [Rpc(SendTo.NotServer)]
-    private void RockHitShownRpc(int id, int health)
+    private void OnDurabilityChanged(NetworkListEvent<RockDurability> change)
     {
-        if (rocksById.TryGetValue(id, out RockHealth rock) && rock != null) rock.ShowNetworkHit(health);
+        if (!IsServer && (change.Type == NetworkListEvent<RockDurability>.EventType.Add
+            || change.Type == NetworkListEvent<RockDurability>.EventType.Value)) ShowDurability(change.Value, true);
+    }
+
+    private void ShowDurability(RockDurability state, bool flash)
+    {
+        if (rocksById.TryGetValue(state.id, out RockHealth rock) && rock != null) rock.ShowNetworkHit(state.health, flash);
     }
 
     private void OnBrokenRocksChanged(NetworkListEvent<int> change)

@@ -13,10 +13,10 @@ MonoBehaviour:
   m_Name: Hammer
   m_EditorClassIdentifier: Assembly-CSharp::ItemData
   category: 1
-  canMine: 1
+  canMine: 0
   itemId: tool_hammer
   displayName: Hammer
-  description: Heavy. Slower than a pickaxe, but breaks rocks in fewer hits.
+  description: A heavy melee weapon. Cannot mine resource nodes.
   icon: {fileID: 21300000, guid: 6058787dd28a31d46be7bf4747b59378, type: 3}
   worldPrefab: {fileID: 7507665146855279511, guid: e48018398ee5edd439ab5cadf58863e1, type: 3}
   heldModel: {fileID: 0}

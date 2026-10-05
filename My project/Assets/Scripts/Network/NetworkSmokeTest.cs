@@ -68,7 +68,7 @@ public class NetworkSmokeTest : MonoBehaviour
 
         // Host hits rock A once too (the client finishes it): the hits must add up across players.
         RockHealth rock = RockA();
-        if (rock != null) { rock.TakeHit(1); Log($"host hit rock A, health now {rock.CurrentHealth}/{rock.MaxHealth}"); }
+        if (rock != null) { rock.TakeMiningHit(1, FindAnyObjectByType<PlayerEquipment>().Equipped); Log($"host hit rock A, health now {rock.CurrentHealth}/{rock.MaxHealth}"); }
 
         // Watch the client move: its avatar's position over time.
         NetworkPlayerAvatar remote = null;
@@ -131,12 +131,12 @@ public class NetworkSmokeTest : MonoBehaviour
         crouchMe.TryStand();
         lampMe.SetOn(false);
 
-        // Mine rock A until it breaks (each TakeHit = one swing's hit).
+        // Mine rock A until it breaks (each TakeMiningHit = one swing's hit).
         yield return new WaitForSeconds(1f); // let the host's hit land first
         RockHealth rock = RockA();
         Log($"rock A health seen by client before mining: {(rock != null ? rock.CurrentHealth.ToString() : "gone")}");
         int hits = 0;
-        while (rock != null && hits < 20) { rock.TakeHit(1); hits++; yield return new WaitForSeconds(0.4f); }
+        while (rock != null && hits < 20) { rock.TakeMiningHit(1, FindAnyObjectByType<PlayerEquipment>().Equipped); hits++; yield return new WaitForSeconds(0.4f); }
         Log($"rock A broken after {hits} client hits: {rock == null}");
         yield return WaitFor(() => Items() > 0, 10f, "ore drops");
         yield return new WaitForSeconds(1.5f); // let them settle

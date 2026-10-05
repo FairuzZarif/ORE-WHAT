@@ -313,11 +313,14 @@ public static partial class IslandMapBuilder
                 foreach (float x in new[] { -0.8f, 0.8f }) m.Box(new Vector3(x, 0.2f, 0f), Quaternion.identity, new Vector3(0.12f, 0.4f, 0.4f), 0);
                 size = new Vector3(2f, 0.5f, 0.45f); centre = new Vector3(0f, 0.25f, 0f);
                 break;
-            default: // "Sign"
-                m = new PropMesh(d.wood);
-                m.Box(new Vector3(0f, 1.1f, 0.1f), Quaternion.identity, new Vector3(0.15f, 2.2f, 0.15f), 0);
-                m.Box(new Vector3(0f, 1.95f, 0f), Quaternion.identity, new Vector3(2.4f, 0.9f, 0.08f), 0);
-                size = Vector3.zero; centre = Vector3.zero;
+            default:
+                if (!OldMineKit(d, name, out m, out size, out centre))
+                {
+                    m = new PropMesh(d.wood);
+                    m.Box(new Vector3(0f, 1.1f, 0.1f), Quaternion.identity, new Vector3(0.15f, 2.2f, 0.15f), 0);
+                    m.Box(new Vector3(0f, 1.95f, 0f), Quaternion.identity, new Vector3(2.4f, 0.9f, 0.08f), 0);
+                    size = Vector3.zero; centre = Vector3.zero;
+                }
                 break;
         }
         GameObject go = m.Build(name, null, Vector3.zero, "Mine" + name);
@@ -756,7 +759,14 @@ public static partial class IslandMapBuilder
             if (S(needed) == null) { missed.Add("mine dressing: " + needed + " is missing, dressing skipped"); return missed; }
         propTemplates = new Dictionary<string, GameObject>();
         signSpots = new List<Vector3>();
-        try { DressMineSpaces(d, S, props, lighting, zones, missed); }
+        try
+        {
+            DressMineSpaces(d, S, props, lighting, zones, missed);
+            string arena = DressOldMineBossArena(d, S("BossArena"), S("OldMine_BossThreshold"),
+                Child(props, "BossArena"), Child(lighting, "BossArena"), zones);
+            if (arena != null) missed.Add(arena);
+            DressOldMineArt(d, S, props, lighting, missed);
+        }
         finally
         {
             foreach (GameObject t in propTemplates.Values) if (t != null) Object.DestroyImmediate(t); // never left in the scene
@@ -1204,8 +1214,32 @@ public static partial class IslandMapBuilder
         Along(lastPoints, "OldMine_Approach_1", 0.12f, 2f); Along(lastPoints, "OldMine_Approach_1", 0.9f, 2f);
         Along(lastPoints, "OldMine_Approach_2", 0.08f, 2f); Along(lastPoints, "OldMine_Approach_2", 0.5f, 2f); Along(lastPoints, "OldMine_Approach_2", 0.93f, 2f);
         Along(lastPoints, "OldMine_ArenaGate", 0.15f, -2.5f); Along(lastPoints, "OldMine_ArenaGate", 0.75f, -2.5f);
-        List<Vector3> lastLine = Rails(d, m1, lastPoints, true, true, routes);
-        if (lastLine.Count > 20) CartOnRails(m1, lastLine, lastLine.Count * 1.2f, "Mine_Cart_BB_grp"); // left on the way down
+        // Broken rail runs with gaps become sparser toward the entrance. Keep the centre line unobstructed.
+        for (int i = 0; i + 1 < lastPoints.Count; i += 2)
+            Rails(d, m1, new List<Vector3> { lastPoints[i], Vector3.Lerp(lastPoints[i], lastPoints[i + 1], 0.65f) }, false, false, routes);
+        var approachRandom = new System.Random(19031); // don't shift the shared dressing sequence for other mines
+        foreach (string name in new[] { "OldMine_Approach_1", "OldMine_Approach_2", "OldMine_ArenaGate" })
+        {
+            CaveSpace tunnel = S(name);
+            if (tunnel == null || tunnel.End == null) continue;
+            Vector3 direction = Flat(tunnel.End.position - tunnel.transform.position).normalized;
+            Quaternion rotation = Quaternion.LookRotation(direction);
+            Vector3 side = Vector3.Cross(Vector3.up, direction);
+            for (int i = 0; i < 2; i++)
+            {
+                Vector3 at = Vector3.Lerp(tunnel.transform.position, tunnel.End.position, i == 0 ? 0.25f : 0.7f);
+                at.y = GroundY(d, at);
+                // Standing stumps and a fallen beam beside the route; no beam crosses above the player's head.
+                Vector3 edge = at + side * (tunnel.Size.x * 0.75f);
+                Piece("Posts/Post_Reinforced_A", m1, edge, rotation,
+                    new Vector3(1.2f, i == 0 ? 0.65f : 0.4f, 1.2f), true);
+                Piece("Posts/Beam_A", m1, edge + direction * 3f + Vector3.up * 0.25f,
+                    rotation * Quaternion.Euler(0f, 85f, 6f), new Vector3(1f, 1f, 1f), false);
+            }
+            if (PropSpot(d, routes, tunnel, approachRandom, 0.65f, 0.8f, 1.2f, out Vector3 cartAt))
+                Piece("MineCart/Mine_Cart_AA", m1, cartAt + Vector3.up * 0.15f,
+                    rotation * Quaternion.Euler(0f, -20f, 75f), Vector3.one, true);
+        }
         if (hall != null)
         {
             int formations = 0;
@@ -1220,7 +1254,7 @@ public static partial class IslandMapBuilder
         foreach (string dark in new[] { "OldMine_Approach_2", "OldMine_ApproachTurn" })
             if (PropSpot(d, routes, S(dark), rnd, 0.6f, 0.9f, 0.5f, out Vector3 deadAt)) d.Lamp(m1, deadAt, S(dark).transform.position, Color.white, 0f, 0f, false);
         Vector3 gateIn = Flat(gate.End.position - gate.transform.position).normalized;
-        AddPointLight(lights, "Arena Gate Glow", gate.End.position - gateIn * 6f + Vector3.up * 5f, new Color(1f, 0.38f, 0.22f), 3.5f, 26f);
+        AddPointLight(lights, "Arena Gate Glow", gate.End.position - gateIn * 6f + Vector3.up * 5f, new Color(1f, 0.55f, 0.24f), 3.5f, 22f);
         d.lights++;
     }
 
@@ -1546,6 +1580,9 @@ public static partial class IslandMapBuilder
             Vector3 toCentre = Flat(s.transform.position - at).normalized, along = Vector3.Cross(Vector3.up, toCentre);
             float yaw = Quaternion.LookRotation(toCentre).eulerAngles.y;
             int kind = rnd.Next(3);
+            // Recompose Old Mine stores as work stations at the original reserved footprints.
+            // Keep the shared random sequence intact so other mines retain their dressing.
+            if (MineOf(s.name) == OldMine && DressOldMineStores(d, s, parent, at, yaw, g, kind)) continue;
             if (kind == 0)
             {
                 Prop(d, "Crate", parent, at, yaw + 8f);

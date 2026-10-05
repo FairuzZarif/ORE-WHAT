@@ -27,7 +27,7 @@ public static class HammerSetupTool
     private const string PickupName = "Hammer (pickup)";
 
     // What makes the hammer feel different from the pickaxe.
-    private const int HammerDamage = 2;          // rocks have 5 health: 3 hammer hits vs 5 pickaxe hits
+    private const int HammerDamage = 2;          // retained melee-controller tuning; Hammer has no CanMine capability
     private const float HammerCooldown = 0.75f;  // pickaxe: 0.6
     private const float HammerAnimationSpeed = 0.8f;
 
@@ -190,10 +190,10 @@ public static class HammerSetupTool
             AssetDatabase.CreateAsset(data, HammerItemPath);
             var so = new SerializedObject(data);
             so.FindProperty("category").enumValueIndex = (int)ItemData.ItemCategory.Tool;
-            so.FindProperty("canMine").boolValue = true;
+            so.FindProperty("canMine").boolValue = false;
             so.FindProperty("itemId").stringValue = "tool_hammer";
             so.FindProperty("displayName").stringValue = "Hammer";
-            so.FindProperty("description").stringValue = "Heavy. Slower than a pickaxe, but breaks rocks in fewer hits.";
+            so.FindProperty("description").stringValue = "A heavy melee weapon. Cannot mine resource nodes.";
             so.FindProperty("value").intValue = 120;
             so.FindProperty("stackable").boolValue = false;
             so.FindProperty("maxStackSize").intValue = 1;

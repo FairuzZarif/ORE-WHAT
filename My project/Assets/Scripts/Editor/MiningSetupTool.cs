@@ -92,7 +92,7 @@ public static class MiningSetupTool
 
         // Inventory, pickup (E), dropping (Q), item pushing and the item HUD.
         ItemSetupTool.AddToPlayer(player);
-        HammerSetupTool.AddHammer(player); // second mining tool: its own view + attack controller
+        HammerSetupTool.AddHammer(player); // melee weapon: its own view + attack controller, without mining capability
         HotbarSetupTool.Add(player);       // 7-slot hotbar, held-item view, item icons
         WeaponSetupTool.AddWeapons(player); // Pistol + Assault Rifle (holdable only) and their test pickups
         PickupHighlightSetupTool.AddAll(player); // outlines on Tool/Weapon pickups + the Player's PickupHighlighter
@@ -106,7 +106,7 @@ public static class MiningSetupTool
         AssetDatabase.SaveAssets(); // persist material tweaks (metallic/smoothness)
         EditorSceneManager.MarkSceneDirty(player.scene);
         EditorSceneManager.SaveScene(player.scene);
-        Debug.Log("[Ore What] Mining setup added. Press Play and left-click the grey rocks.");
+        Debug.Log("[Ore What] Mining setup added. Press Play and mine the KayKit resource nodes with the pickaxe.");
     }
 
     /// <summary>Particle material for rock chips (URP Particles/Lit, tinted per hit by particle colour).</summary>
@@ -128,39 +128,10 @@ public static class MiningSetupTool
         rock.transform.localScale = Vector3.one * scale;
     }
 
-    /// <summary>A lumpy grey rock made of three spheres, with RockHealth on the root.</summary>
+    /// <summary>The shared gameplay node with resource-specific KayKit presentation.</summary>
     private static GameObject CreateRockPrefab()
     {
-        Material rockMat = PrototypeSceneBuilder.GetOrCreateMaterial("Rock", new Color(0.45f, 0.45f, 0.47f));
-        Material oreMat = PrototypeSceneBuilder.GetOrCreateMaterial("Ore_Copper", new Color(0.85f, 0.50f, 0.20f));
-        oreMat.SetFloat("_Metallic", 0.8f);
-        oreMat.SetFloat("_Smoothness", 0.6f);
-
-        var root = new GameObject("Rock");
-        AddRockPart(root.transform, "Main",   new Vector3(0f, 0.40f, 0f),      new Vector3(1.2f, 0.9f, 1.1f), rockMat);
-        AddRockPart(root.transform, "Lump_A", new Vector3(0.45f, 0.30f, 0.2f),  Vector3.one * 0.6f, rockMat);
-        AddRockPart(root.transform, "Lump_B", new Vector3(-0.4f, 0.25f, -0.25f), Vector3.one * 0.5f, rockMat);
-
-        var health = root.AddComponent<RockHealth>();
-        var so = new SerializedObject(health);
-        so.FindProperty("oreMaterial").objectReferenceValue = oreMat;
-        so.FindProperty("oreItem").objectReferenceValue = AssetDatabase.LoadAssetAtPath<ItemData>(ItemSetupTool.CopperOrePath);
-        so.ApplyModifiedPropertiesWithoutUndo();
-
-        EnsureFolder();
-        GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, RockPrefabPath);
-        Object.DestroyImmediate(root);
-        return prefab;
-    }
-
-    private static void AddRockPart(Transform parent, string name, Vector3 pos, Vector3 scale, Material mat)
-    {
-        var part = GameObject.CreatePrimitive(PrimitiveType.Sphere); // comes with a SphereCollider
-        part.name = name;
-        part.transform.SetParent(parent, false);
-        part.transform.localPosition = pos;
-        part.transform.localScale = scale;
-        part.GetComponent<Renderer>().sharedMaterial = mat;
+        return KayKitMiningSetup.SharedRockPrefab();
     }
 
     /// <summary>

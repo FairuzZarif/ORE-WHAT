@@ -100,7 +100,9 @@ public static partial class IslandMapBuilder
         R(OldMine, "OldMine_CollapsedHall", 392, -63.3f, 750,     new Vector3(11f, 12f, 11f), 0f, 0.72f, 2.5f),
         T(OldMine, "OldMine_Approach_2",    V(393, -63.3f, 741),  V(400, -53.3f, 656),  5f,   9f,   0.72f, 0.78f, 2.5f),
         R(OldMine, "OldMine_ApproachTurn",  406, -53.3f, 650,     new Vector3(12f, 9f, 9f),  0f, 0.78f, 2.5f),
-        T(OldMine, "OldMine_ArenaGate",     V(415, -53.3f, 648),  V(430, -36, 703),     6f,   10f,  0.78f, 0.8f, 2f),
+        T(OldMine, "OldMine_ArenaGate",     V(415, -53.3f, 648),  V(430, -36, 696),     6f,   10f,  0.78f, 0.8f, 2f),
+        // Flat final throat after the incline: a turn at the cavern wall, then the large arena reveal.
+        T(OldMine, "OldMine_BossThreshold", V(430, -36, 696),    V(418, -36, 711),     5.5f, 10f,  0.8f,  0.8f, 1f),
 
         // --- Mine 2: Deep Mine (north-east; industrial). Entered from the hub through SideTunnel and SideCave.
         R(DeepMine, "RailStation",      575, -1, 708,       new Vector3(14f, 10f, 11f), 0f, 0.3f, 2f),
@@ -264,15 +266,16 @@ public static partial class IslandMapBuilder
     /// </summary>
     private static string AddMineNetwork(CaveLayout cave)
     {
-        if (cave.transform.Find(LayoutMarker) == null) return ApplyMineLayout(cave);
-        if (cave.transform.Find(OldMineMarker) == null) return ApplyOldMineExpansion(cave);
+        if (cave.transform.Find(LayoutMarker) == null) ApplyMineLayout(cave);
+        if (cave.transform.Find(OldMineMarker) == null) ApplyOldMineExpansion(cave);
+        string bossUpdate = ApplyOldMineBossLayout(cave);
         Transform hub = cave.transform.Find("Cavern_01");
         if (hub == null) return "Mine network: no Cavern_01 (the hub) in the cave, nothing added.";
         var added = new List<string>();
         foreach (MineSpace m in MineSpaces)
             if (cave.transform.Find(m.name) == null) { SetSpace(cave.transform, m, hub.position.y); added.Add(m.name); }
         cave.Prepare();
-        return added.Count == 0 ? "Mine network: all spaces already there." : $"Mine network: added {added.Count} spaces ({string.Join(", ", added)}).";
+        return bossUpdate + (added.Count == 0 ? "Mine network: all spaces already there." : $"Mine network: added {added.Count} spaces ({string.Join(", ", added)}).");
     }
 
     private const string OldMineMarker = "_Layout: Old Mine Expansion";

@@ -189,7 +189,7 @@ public static class ItemSetupTool
         if (mining != null)
         {
             var mso = new SerializedObject(mining);
-            damage = mso.FindProperty("damagePerHit").intValue;
+            damage = mining.DefaultMiningDamage;
             cooldown = mso.FindProperty("miningCooldown").floatValue;
         }
         EnsureMiningTool(viewModel.gameObject, swing, damage, cooldown);

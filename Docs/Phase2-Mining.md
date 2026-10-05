@@ -1,5 +1,7 @@
 # Ore What: Phase 2, Basic Mining
 
+> **Current mining implementation:** resource-specific KayKit nodes, percentage-based crack stages, pickaxe-only mining and synchronized partial durability are documented in [KayKitMiningNodes.md](KayKitMiningNodes.md). The prototype description below is historical.
+
 > **Updated in Phase 3.** The single `PickaxeVisual` object and the simple two-part swing described below have been replaced by first-person arms (`FirstPersonViewModel → Arms → hands + Pickaxe`) and a 5-phase swing. Damage is now applied when the strike lands, not on click. The rock, ore, and raycast parts of this doc are still accurate. See [Phase3-FirstPersonViewmodel.md](Phase3-FirstPersonViewmodel.md).
 
 This phase adds a pickaxe, rocks you can break, and ore that drops out of them. There's no inventory, pickup, or currency yet; the ore just sits on the ground.
