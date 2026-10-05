@@ -55,6 +55,7 @@ public class MultiplayerHUD : MonoBehaviour
 
         // Esc menu while the cursor is free. Clicks are taken on mouse DOWN: PlayerLook locks the cursor again on that
         // same click (in Update, before this), so a normal GUI.Button (which fires on mouse up) would never fire.
+        if (CompanyOfficeUI.AnyOpen) return;
         if (!cursorFreeThisFrame && Cursor.lockState == CursorLockMode.Locked) return;
         if (localDeath == null) localDeath = FindAnyObjectByType<PlayerDeath>();
         if (localDeath != null && localDeath.IsDead) return; // the cursor is free for the death screen's button, not this menu

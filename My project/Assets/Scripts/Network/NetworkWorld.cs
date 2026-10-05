@@ -16,7 +16,7 @@ using UnityEngine;
 ///           Picking one up asks the host, which hands it to the first player who asks and removes it.
 ///           Carrying asks the host for ownership, so the carrier moves it with its own physics.
 ///
-/// Player-only things (inventory, equipment, HUD, camera) stay local and never pass through here.
+/// The inventory UI stays local; NetworkPlayerEconomy records host-approved ownership for pickups, drops and sales.
 /// </summary>
 public class NetworkWorld : NetworkBehaviour, IWorldNetwork
 {
@@ -230,18 +230,8 @@ public class NetworkWorld : NetworkBehaviour, IWorldNetwork
     public DroppedItem SpawnItem(ItemData item, int amount, Vector3 position, Quaternion rotation, Vector3 velocity, Vector3 angularVelocity)
     {
         if (IsServer) return SpawnShared(item, amount, position, rotation, velocity, angularVelocity);
-        int index = IndexOf(item);
-        if (index < 0) { Debug.LogWarning($"[Ore What] {item.name} isn't in NetworkWorld's item list, so it can't be dropped in multiplayer."); return null; }
-        SpawnItemRpc(index, amount, position, rotation, velocity, angularVelocity);
+        // Mining/world rewards are host-only. Inventory drops use the player's account and remove owned items first.
         return null;
-    }
-
-    [Rpc(SendTo.Server)]
-    private void SpawnItemRpc(int index, int amount, Vector3 position, Quaternion rotation, Vector3 velocity, Vector3 angularVelocity)
-    {
-        ItemData item = ItemAt(index);
-        if (item == null || amount < 1 || amount > item.MaxStack) return;
-        SpawnShared(item, amount, position, rotation, velocity, angularVelocity);
     }
 
     /// <summary>Host: builds the item and spawns it on every machine.</summary>
@@ -283,17 +273,14 @@ public class NetworkWorld : NetworkBehaviour, IWorldNetwork
         DroppedItem dropped = net.Dropped;
         int index = IndexOf(dropped.Item);
         if (index < 0) return;
-        int granted = Mathf.Min(dropped.Amount, maxAmount);
+        if (!NetworkManager.ConnectedClients.TryGetValue(sender, out var player) || player.PlayerObject == null ||
+            !player.PlayerObject.TryGetComponent<NetworkPlayerEconomy>(out var account)) return;
+        int granted = account.StorePickup(dropped.Item, Mathf.Min(dropped.Amount, maxAmount));
+        if (granted <= 0) { MessageRpc("Inventory Full", RpcTarget.Single(sender, RpcTargetUse.Temp)); return; }
+        ItemData data = dropped.Item;
         if (granted >= dropped.Amount) netObj.Despawn(true); // gone for everyone: nobody else can collect it
         else { net.Amount.Value = dropped.Amount - granted; dropped.SetAmount(net.Amount.Value); }
-        GrantRpc(index, granted, RpcTarget.Single(sender, RpcTargetUse.Temp));
-    }
-
-    [Rpc(SendTo.SpecifiedInParams)]
-    private void GrantRpc(int index, int amount, RpcParams rpcParams)
-    {
-        var collector = FindAnyObjectByType<ItemPickupInteractor>();
-        if (collector != null) collector.GrantPickup(ItemAt(index), amount);
+        account.ConfirmPickup(data, granted);
     }
 
     public bool RequestCarry(DroppedItem item, OreCarryController carrier)

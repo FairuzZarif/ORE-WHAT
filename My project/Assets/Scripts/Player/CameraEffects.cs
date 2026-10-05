@@ -122,7 +122,7 @@ public class CameraEffects : MonoBehaviour
 
     private float airY, airYVel, airPitch, airPitchVel;
 
-    private float hitTimer = -1f, hitRollSign = 1f;
+    private float hitTimer = -1f, hitRollSign = 1f, hitScale = 1f;
     private float shakeStrength;
     private float noiseSeed;
 
@@ -172,6 +172,7 @@ public class CameraEffects : MonoBehaviour
 
     private void OnPickaxeHit()
     {
+        hitScale = heldItem is FistsController fists && fists.LastHitWasHardSurface ? 0.25f : 1f;
         hitTimer = 0f;
         hitRollSign = Random.value < 0.5f ? -1f : 1f;
     }
@@ -298,9 +299,9 @@ public class CameraEffects : MonoBehaviour
             {
                 // Sharp attack, eased recovery.
                 float k = Mathf.Sin(Mathf.PI * Mathf.Pow(t, 0.5f)) * (1f - t);
-                finalPos.y -= k * miningImpactDrop;
-                finalRot.x += k * miningImpactNod;
-                finalRot.z += k * miningImpactRoll * hitRollSign;
+                finalPos.y -= k * miningImpactDrop * hitScale;
+                finalRot.x += k * miningImpactNod * hitScale;
+                finalRot.z += k * miningImpactRoll * hitRollSign * hitScale;
             }
         }
 

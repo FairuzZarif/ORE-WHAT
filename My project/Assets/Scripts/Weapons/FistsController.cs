@@ -66,7 +66,7 @@ public class FistsController : HeldItemController
     [SerializeField] private Vector2 swingPitchRange = new Vector2(1.20f, 1.35f);
 
     private enum Phase { Idle, Raise, Strike, Hold, Recover }
-    private class Hand { public Phase phase; public float time; }
+    private class Hand { public Phase phase; public float time; public bool hardImpact; }
 
     private readonly Hand right = new Hand(), left = new Hand();
     private float lastPunchTime = -10f, kick;
@@ -84,8 +84,11 @@ public class FistsController : HeldItemController
     public override float AttackInterval => cooldown;
     /// <summary>True while either hand is moving.</summary>
     public bool IsPunching => right.phase != Phase.Idle || left.phase != Phase.Idle;
+    public bool LastHitWasHardSurface { get; private set; }
     /// <summary>Raised on every punch (right hand = true), for sounds / third-person animation later.</summary>
     public event Action<bool> Punched;
+    /// <summary>One confirmed environmental contact; shared as cosmetics, never as mining damage.</summary>
+    public event Action<Vector3, Vector3, int> HardSurfaceHit;
     /// <summary>Both hands are back down: the punch (and any follow-up) is over.</summary>
     public event Action Finished;
 
@@ -106,6 +109,7 @@ public class FistsController : HeldItemController
     private void ResetPose()
     {
         right.phase = left.phase = Phase.Idle;
+        right.hardImpact = left.hardImpact = false;
         wasPunching = false;
         kick = 0f;
         Place(true, Phase.Idle, 0f);
@@ -127,6 +131,7 @@ public class FistsController : HeldItemController
         lastWasRight = useRight;
         hand.phase = Phase.Raise;
         hand.time = 0f;
+        hand.hardImpact = false;
         wasPunching = true;
         Punched?.Invoke(useRight);
         return true;
@@ -155,7 +160,7 @@ public class FistsController : HeldItemController
         if (t < 1f) return;
 
         if (hand.phase == Phase.Raise) PlayPunchSwing();
-        if (hand.phase == Phase.Strike) Impact();
+        if (hand.phase == Phase.Strike) Impact(hand);
         hand.time = 0f;
         hand.phase = hand.phase == Phase.Raise ? Phase.Strike : hand.phase == Phase.Strike ? Phase.Hold : hand.phase == Phase.Hold ? Phase.Recover : Phase.Idle;
         if (hand.phase == Phase.Idle) Place(isRight, Phase.Idle, 0f);
@@ -192,6 +197,10 @@ public class FistsController : HeldItemController
             case Phase.Recover: position = Vector3.Lerp(strike, lowered, Smooth(t)); twist = strikeTwist * (1f - Smooth(t)); break;
             default: position = lowered; twist = 0f; break;
         }
+        // A contacted fist pulls back 4 cm, then blends into its existing recovery.
+        Hand hand = isRight ? right : left;
+        if (hand.hardImpact && (phase == Phase.Hold || phase == Phase.Recover))
+            position.z -= 0.04f * (phase == Phase.Hold ? Smooth(t) : 1f - Smooth(t));
         Quaternion rotation = Quaternion.AngleAxis(isRight ? twist : -twist, Vector3.forward) * (isRight ? rightGuardRotation : leftGuardRotation);
         grip.SetLocalPositionAndRotation(position, rotation);
     }
@@ -199,7 +208,7 @@ public class FistsController : HeldItemController
     private static Vector3 Mirror(Vector3 v, bool isRight) => isRight ? v : new Vector3(-v.x, v.y, v.z);
 
     /// <summary>One check at full extension: damage the nearest damageable thing in reach (once per punch).</summary>
-    private void Impact()
+    private void Impact(Hand hand)
     {
         if (playerCamera == null) return;
         Transform eye = playerCamera.transform;
@@ -219,12 +228,45 @@ public class FistsController : HeldItemController
         if (target != null && Physics.Raycast(eye.position, eye.forward, out RaycastHit aimed, range + radius, hitLayers, QueryTriggerInteraction.Ignore)
             && aimed.collider.GetComponentInParent<IDamageable>() == target)
             hit = aimed;
-        if (target != null) target.TakeDamage(damage, hit);
         // (distance 0 = it was already touching the fist's sphere: still a hit, but Unity gives no hit point)
-        Vector3 point = hit.distance > 0f ? hit.point : hit.collider.ClosestPoint(eye.position);
+        // Project onto this already-confirmed collider for overlapping casts. ClosestPoint isn't supported
+        // on non-convex cave MeshColliders; a ray against this collider also supplies its surface normal.
+        if (hit.distance <= 0f && hit.collider.Raycast(new Ray(eye.position, eye.forward), out RaycastHit contact, range + radius))
+            hit = contact;
+        else if (hit.distance <= 0f && hit.collider.Raycast(new Ray(eye.position - eye.forward * (radius + 0.02f), eye.forward), out contact, range + radius * 2f))
+            hit = contact;
+        bool hard = HardPunchImpactFX.IsHardSurface(hit.collider);
+        Vector3 point = hit.point;
+        Vector3 normal = hit.normal;
+        if (hit.distance <= 0f)
+        {
+            bool supportsClosestPoint = !(hit.collider is TerrainCollider) && !(hit.collider is MeshCollider mesh && !mesh.convex);
+            if (supportsClosestPoint)
+            {
+                point = hit.collider.ClosestPoint(eye.position);
+                normal = (eye.position - point).normalized;
+                if (normal.sqrMagnitude < 0.001f) hard = false; // camera inside solid geometry has no usable contact
+            }
+            else if (hit.collider.Raycast(new Ray(eye.position, hit.collider.bounds.center - eye.position), out contact, range + radius))
+            { point = contact.point; normal = contact.normal; }
+            else hard = false; // no valid surface point: never emit blood at Unity's unset (0,0,0)
+        }
+        if (target != null) target.TakeDamage(damage, hit);
+        LastHitWasHardSurface = hard;
         if (hit.rigidbody != null && !hit.rigidbody.isKinematic) hit.rigidbody.AddForceAtPosition(eye.forward * impulse, point, ForceMode.Impulse);
-        kick = impactKick;
-        RaiseHitLanded(); // CameraEffects' small hit nod
+        if (hard)
+        {
+            hand.hardImpact = true;
+            kick = Mathf.Min(impactKick, 0.45f);
+            int seed = UnityEngine.Random.Range(1, int.MaxValue);
+            HardPunchImpactFX.Play(point, normal.sqrMagnitude > 0.001f ? normal : -eye.forward, seed);
+            HardSurfaceHit?.Invoke(point, normal.sqrMagnitude > 0.001f ? normal : -eye.forward, seed);
+        }
+        else
+        {
+            kick = impactKick;
+        }
+        RaiseHitLanded(); // one shared contact notification; CameraEffects scales the hard-surface nod
     }
 
     private static float Smooth(float t) => t * t * (3f - 2f * t);

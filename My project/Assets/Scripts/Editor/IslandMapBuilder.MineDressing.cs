@@ -912,6 +912,7 @@ public static partial class IslandMapBuilder
         {
             if (!Footprint(d, routes, hub, rnd, 3.3f, 0.5f, 0.78f, out Vector3 at, out Quaternion rot)) { missed.Add("hub booth " + title); continue; }
             Booth(d, hubP, lights, at, rot, title);
+            if (title == "COMPANY OFFICE") CompanyOfficeSetupTool.DressBooth(hubP.Find("Booth " + title));
             booths.Add(("Reserved_" + title.Replace(' ', '_'), at));
             Zone(zones, "Reserved_" + title.Replace(' ', '_'), MapZone.ZoneKind.Landmark, 1, at, 4f, note);
         }

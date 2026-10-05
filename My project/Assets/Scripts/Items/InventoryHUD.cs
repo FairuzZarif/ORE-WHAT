@@ -21,9 +21,13 @@ public class InventoryHUD : MonoBehaviour
 
     private void OnGUI()
     {
+        if (CompanyOfficeUI.AnyOpen) return;
         if (pickup == null) return;
         if (centerStyle == null)
+        {
             centerStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontSize = 18, fontStyle = FontStyle.Bold };
+            centerStyle.normal.textColor = Color.white;
+        }
 
         float cx = Screen.width * 0.5f, y = Screen.height * 0.5f + 24f;
         string prompt = pickup.PromptText;

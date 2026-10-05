@@ -126,6 +126,7 @@ public static class MultiplayerSetupTool
         // head / chest / arm / leg colliders, switched on at runtime on the Default layer by NetworkPlayerAvatar).
         var root = new GameObject("NetworkPlayer") { layer = PlayerLayer };
         root.AddComponent<NetworkObject>();
+        CompanyOfficeSetupTool.ConfigureNetworkPlayer(root);
         var nt = root.AddComponent<NetworkTransform>();
         nt.AuthorityMode = NetworkTransform.AuthorityModes.Owner; // each player moves its own avatar
         nt.SyncRotAngleX = nt.SyncRotAngleZ = false;               // the body only turns around Y

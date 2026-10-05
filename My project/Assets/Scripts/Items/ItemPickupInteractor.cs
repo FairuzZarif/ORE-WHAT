@@ -56,6 +56,7 @@ public class ItemPickupInteractor : MonoBehaviour
 
     /// <summary>The item being looked at (in range and not blocked), or null.</summary>
     public DroppedItem Target { get; private set; }
+    public CompanyWorkerNPC CompanyWorker { get; private set; }
     /// <summary>
     /// What the keys would do right now, one action per line ("[E] Carry Copper Ore\n[F] Store Copper Ore"),
     /// or null when there's nothing to do.
@@ -64,6 +65,7 @@ public class ItemPickupInteractor : MonoBehaviour
     {
         get
         {
+            if (CompanyWorker != null) return "[E] Talk to Company Worker";
             if (carrier != null && carrier.IsCarrying)
             {
                 string held = $"Carrying: {carrier.LastCarried.DisplayName}\n[{releaseKey}] Release   [{storeKey}] Store";
@@ -120,6 +122,7 @@ public class ItemPickupInteractor : MonoBehaviour
         if (playerCamera == null || inventory == null || Cursor.lockState != CursorLockMode.Locked)
         {
             Target = null;
+            CompanyWorker = null;
             return;
         }
 
@@ -127,6 +130,11 @@ public class ItemPickupInteractor : MonoBehaviour
 
         Keyboard keyboard = Keyboard.current;
         if (keyboard == null) return;
+        if (CompanyWorker != null && keyboard[pickupKey].wasPressedThisFrame)
+        {
+            GetComponent<CompanyOfficeUI>()?.Open(CompanyWorker);
+            return;
+        }
         if (keyboard[storeKey].wasPressedThisFrame)
         {
             // Store what you're carrying first, otherwise what you're looking at.
@@ -166,6 +174,7 @@ public class ItemPickupInteractor : MonoBehaviour
 
     private DroppedItem FindTarget()
     {
+        CompanyWorker = null;
         Ray ray = playerCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
         int mask = pickupLayer | blockingLayers;
         int count = aimRadius > 0f
@@ -175,6 +184,7 @@ public class ItemPickupInteractor : MonoBehaviour
         // Only the first thing hit counts, so a wall or rock in front hides the item.
         // A carried item is looked through (it floats right in front of you).
         DroppedItem nearest = null;
+        CompanyWorkerNPC worker = null;
         float nearestDistance = float.MaxValue;
         for (int i = 0; i < count; i++)
         {
@@ -183,8 +193,22 @@ public class ItemPickupInteractor : MonoBehaviour
             if (lookHits[i].distance >= nearestDistance) continue;
             nearestDistance = lookHits[i].distance;
             nearest = item; // null = a wall/rock is closest
+            worker = lookHits[i].collider.GetComponentInParent<CompanyWorkerNPC>();
         }
+        if (worker != null && worker.CanInteract(playerCamera.transform.position, transform.position)) CompanyWorker = worker;
         return nearest != null && nearest.Item != null && !nearest.IsBeingPickedUp ? nearest : null;
+    }
+
+    /// <summary>Uses the existing look probe for automated interaction review too.</summary>
+    public void RefreshTarget() { Target = FindTarget(); }
+
+    /// <summary>Host already changed the authoritative slots. This only equips and plays the existing pickup cue.</summary>
+    public void ConfirmAuthoritativePickup(ItemData data, int amount)
+    {
+        if (data == null || amount <= 0) return;
+        if (equipment != null && data.Equippable && equipment.Equipped == null)
+            for (int i = 0; i < inventory.SlotCount; i++) if (inventory.Slots[i].item == data) { equipment.EquipSlot(i); break; }
+        PlaySound(data); PickedUp?.Invoke(data, amount);
     }
 
     /// <summary>
@@ -197,12 +221,13 @@ public class ItemPickupInteractor : MonoBehaviour
         if (item == null || item.IsBeingPickedUp || item.Item == null) return false;
         ItemData data = item.Item;
 
-        // Multiplayer: the host decides who gets it (only once); GrantPickup runs when it says yes.
+        // Multiplayer: only the host's committed inventory snapshot can grant a pickup.
         if (WorldNetwork.Current != null)
         {
             if (inventory.SpaceFor(data) <= 0) { ShowMessage("Inventory Full"); return false; }
             if (carrier != null && item.IsCarried) carrier.Forget(item);
             if (WorldNetwork.Current.RequestPickup(item, inventory.SpaceFor(data))) { Target = null; return true; }
+            return false;
         }
 
         int added = inventory.AddItem(data, item.Amount, out int slot);
@@ -230,27 +255,6 @@ public class ItemPickupInteractor : MonoBehaviour
         PlaySound(data);
         PickedUp?.Invoke(data, added);
         return true;
-    }
-
-    /// <summary>
-    /// Multiplayer: the host gave this player an item it asked for (the world object is already gone).
-    /// Adds it like a normal pickup; whatever doesn't fit is dropped back into the world.
-    /// </summary>
-    public void GrantPickup(ItemData data, int amount)
-    {
-        if (data == null || amount <= 0) return;
-        int added = inventory.AddItem(data, amount, out int slot);
-        if (added < amount)
-        {
-            ShowMessage("Inventory Full");
-            Vector3 at = playerCamera != null ? playerCamera.transform.position + playerCamera.transform.forward * 0.8f : transform.position;
-            ItemDrops.Spawn(data, amount - added, at, Quaternion.identity, Vector3.zero, Vector3.zero);
-        }
-        if (added <= 0) return;
-        if (equipment != null && data.Equippable && equipment.Equipped == null && slot >= 0)
-            equipment.EquipSlot(slot);
-        PlaySound(data);
-        PickedUp?.Invoke(data, added);
     }
 
     private void PlaySound(ItemData item)

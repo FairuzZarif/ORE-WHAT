@@ -139,6 +139,33 @@ public class PlayerInventory : MonoBehaviour
         return n;
     }
 
+    /// <summary>One inventory change for an entire sale; never touches other item categories.</summary>
+    public int RemoveCompanyOres(ItemData only = null)
+    {
+        int removed = 0;
+        foreach (var slot in slots)
+            if (!slot.IsEmpty && slot.item.CompanyOre && (only == null || slot.item == only))
+            {
+                removed += slot.amount;
+                slot.item = null; slot.amount = 0;
+            }
+        if (removed > 0) Changed?.Invoke();
+        return removed;
+    }
+
+    /// <summary>Applies a complete host-owned snapshot to this same hotbar inventory, notifying once.</summary>
+    public void ApplyAuthoritativeSlots(ItemData[] items, int[] amounts)
+    {
+        if (items == null || amounts == null || items.Length != slots.Count || amounts.Length != slots.Count) return;
+        bool changed = false;
+        for (int i = 0; i < slots.Count; i++)
+        {
+            changed |= slots[i].item != items[i] || slots[i].amount != amounts[i];
+            slots[i].item = items[i]; slots[i].amount = amounts[i];
+        }
+        if (changed) Changed?.Invoke();
+    }
+
     public void SelectSlot(int slotIndex)
     {
         if (slotIndex < 0 || slotIndex >= slots.Count || slotIndex == SelectedSlot) return;

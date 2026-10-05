@@ -2,11 +2,15 @@
 A cooperative first-person mining game ("friendslop" genre game). Built in Unity 6.
 
 ## Status
-Early prototype. The island map has a Central Mining Hub and four mines, multiplayer, pickaxe-only mining, an inventory/hotbar, physical item pickup, a hammer, and two early weapons (pistol and assault rifle). Ore populations are randomized and respawn under host authority. No saving between sessions yet.
+Early prototype. The island map has a Central Mining Hub and four mines, multiplayer, pickaxe-only mining, an inventory/hotbar, physical item pickup, a hammer, and two early weapons (pistol and assault rifle). Ore populations are randomized and respawn under host authority. The Company Office buys stored ores for per-player money, completing the first mine-and-sell loop. No saving between sessions yet.
 
 See [Ore distribution and respawning](Docs/OreDistribution.md) for socket counts, resource progression, economy settings, tuning and validation results.
 
 See [Cave geometry and geology](Docs/CaveGeometry.md) for the angular cave pass, before/after views, geometry budget and traversal checks.
+
+See [Hard-surface punch feedback](Docs/HardPunchFeedback.md) for fist thuds, brief hand-blood bursts, multiplayer cosmetics and mining/character regression checks.
+
+See [Company Office economy](Docs/CompanyOfficeEconomy.md) for the worker, selling controls, exact prices, host-owned inventory/currency, full gameplay test and multiplayer results.
 
 ## Playing it
 **Play in the Editor:** open `My project/` in Unity 6000.6.3f1 and press Play on `Assets/Scenes/PlayerTest.unity`.
@@ -25,6 +29,8 @@ See [Cave geometry and geology](Docs/CaveGeometry.md) for the angular cave pass,
 | Carry an ore | E (look at it); E again to put it down |
 | Store in inventory | F |
 | Pick up a tool/weapon | E |
+| Talk to Company Worker | E (inside the Company Office, looking at him) |
+| Close Company Office | Escape, E, or Close button |
 | Select hotbar slot | 1–7, or mouse wheel |
 | Throw held item | G |
 | Drop one item | Q (Ctrl+Q drops the whole stack) |

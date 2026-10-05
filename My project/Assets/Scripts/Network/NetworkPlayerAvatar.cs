@@ -313,7 +313,7 @@ public class NetworkPlayerAvatar : NetworkBehaviour
         fists = equipment != null && equipment.UnarmedView != null ? equipment.UnarmedView.GetComponent<FistsController>() : null;
         weapons = p.GetComponentsInChildren<WeaponController>(true);
         swings = p.GetComponentsInChildren<PickaxeSwing>(true);
-        if (fists != null) fists.Punched += OnLocalPunch;
+        if (fists != null) { fists.Punched += OnLocalPunch; fists.HardSurfaceHit += OnLocalHardPunch; }
         foreach (WeaponController w in weapons) { w.ShotFired += OnLocalShot; w.ReloadStarted += OnLocalReload; }
         foreach (PickaxeSwing s in swings) s.SwingStarted += OnLocalSwing;
         if (playerHeadlamp != null)
@@ -325,7 +325,7 @@ public class NetworkPlayerAvatar : NetworkBehaviour
 
     private void UnhookActions()
     {
-        if (fists != null) fists.Punched -= OnLocalPunch;
+        if (fists != null) { fists.Punched -= OnLocalPunch; fists.HardSurfaceHit -= OnLocalHardPunch; }
         foreach (WeaponController w in weapons) if (w != null) { w.ShotFired -= OnLocalShot; w.ReloadStarted -= OnLocalReload; }
         foreach (PickaxeSwing s in swings) if (s != null) s.SwingStarted -= OnLocalSwing;
         if (playerHeadlamp != null) playerHeadlamp.Changed -= OnLocalHeadlamp;
@@ -337,6 +337,10 @@ public class NetworkPlayerAvatar : NetworkBehaviour
     // The local lamp has already switched (no delay for its owner); the others follow.
     private void OnLocalHeadlamp(bool on) { if (IsSpawned && IsOwner) headlampOn.Value = on; }
     private void OnLocalPunch(bool right) { if (IsSpawned) PunchRpc(right); }
+    private void OnLocalHardPunch(Vector3 point, Vector3 normal, int seed)
+    {
+        if (IsSpawned && IsOwner) HardPunchRpc(point, normal, seed);
+    }
     // The shot's end point goes along so the others' tracer ends where the real shot did (nothing else about the shot).
     private void OnLocalShot()
     {
@@ -355,6 +359,11 @@ public class NetworkPlayerAvatar : NetworkBehaviour
     }
 
     [Rpc(SendTo.NotMe)] private void PunchRpc(bool right) { if (presentation != null) presentation.Punch(right); }
+    // Owner already played its effect. Other machines render this cosmetic contact without another hit check.
+    [Rpc(SendTo.NotMe)] private void HardPunchRpc(Vector3 point, Vector3 normal, int seed)
+    {
+        HardPunchImpactFX.Play(point, normal, seed, remote: true);
+    }
     [Rpc(SendTo.NotMe, Delivery = RpcDelivery.Unreliable)] private void ShotRpc(Vector3 end) { if (presentation != null && !isDead) presentation.Shot(end); }
     [Rpc(SendTo.NotMe)] private void ReloadRpc(float duration) { if (presentation != null) presentation.Reload(duration); }
     [Rpc(SendTo.NotMe)] private void SwingRpc(byte kind, float impact, float end) { if (presentation != null) presentation.Swing(kind, impact, end); }

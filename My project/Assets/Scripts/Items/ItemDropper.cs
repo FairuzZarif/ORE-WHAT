@@ -66,8 +66,7 @@ public class ItemDropper : MonoBehaviour
     {
         if (playerCamera == null || slotIndex < 0 || slotIndex >= inventory.SlotCount) return null;
         ItemData item = inventory.Slots[slotIndex].item;
-        int removed = inventory.RemoveFromSlot(slotIndex, amount);
-        if (item == null || removed <= 0) return null;
+        if (item == null || amount <= 0) return null;
 
         Transform eye = playerCamera.transform;
         Vector3 forward = eye.forward;
@@ -84,6 +83,9 @@ public class ItemDropper : MonoBehaviour
         if (inheritPlayerVelocity && controller != null) velocity += controller.velocity;
         Vector3 spin = Random.insideUnitSphere * randomTorque;
 
+        if (WorldNetwork.Current != null)
+            return NetworkPlayerEconomy.Local?.RequestDrop(slotIndex, item, Mathf.Min(amount, inventory.Slots[slotIndex].amount), position, Random.rotation, velocity, spin);
+        int removed = inventory.RemoveFromSlot(slotIndex, amount);
         DroppedItem dropped = ItemDrops.Spawn(item, removed, position, Random.rotation, velocity, spin);
         if (dropped != null) GetComponent<ItemPickupInteractor>()?.PlayDropSound();
         return dropped;

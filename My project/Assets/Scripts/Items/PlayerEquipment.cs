@@ -45,6 +45,7 @@ public class PlayerEquipment : MonoBehaviour
     [Header("Held item")]
     [Tooltip("Put into the inventory and selected when the game starts (can be empty).")]
     [SerializeField] private ItemData startingItem;
+    public ItemData StartingItem => startingItem;
     [Tooltip("Tools/weapons with their own first-person view.")]
     [SerializeField] private HeldView[] views = new HeldView[0];
     [Tooltip("Shared view for every other item (ores...) and for carried world ores.")]
@@ -137,7 +138,8 @@ public class PlayerEquipment : MonoBehaviour
         if (presentation == null && playerCamera != null) presentation = playerCamera.GetComponent<FirstPersonPresentation>();
         controller = GetComponent<CharacterController>();
 
-        if (startingItem != null && inventory != null && inventory.AddItem(startingItem, 1, out int slot) > 0)
+        if ((Unity.Netcode.NetworkManager.Singleton == null || !Unity.Netcode.NetworkManager.Singleton.IsListening) &&
+            startingItem != null && inventory != null && inventory.AddItem(startingItem, 1, out int slot) > 0)
             inventory.SelectSlot(slot);
         Refresh();
     }
@@ -267,6 +269,8 @@ public class PlayerEquipment : MonoBehaviour
                                blockingLayers, QueryTriggerInteraction.Ignore))
             position = eye.position + toSpawn.normalized * Mathf.Max(0f, hit.distance - 0.05f);
 
+        if (WorldNetwork.Current != null)
+            return NetworkPlayerEconomy.Local?.RequestDrop(EquippedSlotIndex, item, 1, position, rotation, ThrowVelocity(), ThrowSpin());
         inventory.RemoveFromSlot(EquippedSlotIndex, 1); // the view updates itself (empty slot = empty hands)
         DroppedItem dropped = ItemDrops.Spawn(item, 1, position, rotation, ThrowVelocity(), ThrowSpin());
         if (dropped != null) GetComponent<ItemPickupInteractor>()?.PlayDropSound();

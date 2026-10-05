@@ -4445,6 +4445,9 @@ GameObject:
   - component: {fileID: 7249842390290307365}
   - component: {fileID: 2807407494756911312}
   - component: {fileID: 4252643815848711105}
+  - component: {fileID: 6992024107319135328}
+  - component: {fileID: 4253880982567652509}
+  - component: {fileID: 1646036576198242749}
   m_Layer: 8
   m_Name: NetworkPlayer
   m_TagString: Untagged
@@ -8829,6 +8832,60 @@ MonoBehaviour:
   bloodEffect: {fileID: 2618435013761181430, guid: bf408acd91fe9744e95e51f0d3b4da7a, type: 3}
   bloodSplat: {fileID: 2100000, guid: 430d657205534074b8a15054b1a96185, type: 2}
   defaultMaxHealth: 100
+--- !u!114 &6992024107319135328
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2387310512137341481}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d7931d55f73504b4fb8cc07df22a5337, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerInventory
+  slotCount: 7
+  slots:
+  - item: {fileID: 0}
+    amount: 0
+  - item: {fileID: 0}
+    amount: 0
+  - item: {fileID: 0}
+    amount: 0
+  - item: {fileID: 0}
+    amount: 0
+  - item: {fileID: 0}
+    amount: 0
+  - item: {fileID: 0}
+    amount: 0
+  - item: {fileID: 0}
+    amount: 0
+--- !u!114 &4253880982567652509
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2387310512137341481}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ddf871486a184324dba96274d50f3104, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerCurrency
+  money: 0
+--- !u!114 &1646036576198242749
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2387310512137341481}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 455872cfd75b93b4ab4760572077f930, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::NetworkPlayerEconomy
+  ShowTopMostFoldoutHeaderGroup: 1
 --- !u!1 &2391473234724411216
 GameObject:
   m_ObjectHideFlags: 0

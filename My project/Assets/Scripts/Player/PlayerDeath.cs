@@ -95,6 +95,7 @@ public class PlayerDeath : MonoBehaviour
     private void Die()
     {
         if (IsDead) return;
+        GetComponent<CompanyOfficeUI>()?.CloseBeforeDeath();
         IsDead = true;
         respawnRequested = false;
         deathTime = Time.time;

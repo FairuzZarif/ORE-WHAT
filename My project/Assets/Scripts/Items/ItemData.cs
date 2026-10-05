@@ -34,6 +34,8 @@ public class ItemData : ScriptableObject
     [SerializeField] private GameObject heldModel;
 
     [Header("Economy & stacking")]
+    [Tooltip("A mined ore accepted by the Company Office. Tools and other item categories cannot be sold.")]
+    [SerializeField] private bool companyOre;
     [Tooltip("Worth of ONE item, in $.")]
     [SerializeField, Min(0)] private int value = 10;
     [Tooltip("Can several share one inventory slot?")]
@@ -63,6 +65,7 @@ public class ItemData : ScriptableObject
     /// <summary>What the hands hold when this item is selected (HeldModel, or the World Prefab's look).</summary>
     public GameObject HeldModel => heldModel != null ? heldModel : worldPrefab;
     public int Value => value;
+    public bool CompanyOre => companyOre && category == ItemCategory.Resource;
     public bool Stackable => stackable;
     /// <summary>How many fit in one inventory slot.</summary>
     public int MaxStack => stackable ? Mathf.Max(1, maxStackSize) : 1;
