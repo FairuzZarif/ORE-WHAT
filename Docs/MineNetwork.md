@@ -1,6 +1,6 @@
 # Map layout: the Central Mining Hub and four mines
 
-The later [Old Mine environment art pass](OldMineEnvironmentArt.md) documents the regenerated dressing, shared prop kit, current 98-space validation, and first-person/multiplayer acceptance checks.
+The later [Old Mine environment art pass](OldMineEnvironmentArt.md) documents the regenerated dressing, shared prop kit, current 98-space validation, and first-person/multiplayer acceptance checks. [Ore distribution and respawning](OreDistribution.md) supersedes the historical fixed-node resource placement described below.
 
 The island's cave is organised as one hub with four self-contained mines. Each mine has its own entrance in the hub, and the hub is the only connection between mines.
 

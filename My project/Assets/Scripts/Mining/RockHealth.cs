@@ -45,6 +45,13 @@ public class RockHealth : MonoBehaviour
     public int CurrentHealth => currentHealth;
     public int MaxHealth => maxHealth;
     public ItemData OreItem => oreItem;
+    public event System.Action<RockHealth> DamageApplied;
+
+    public void InitializeOre(ItemData item)
+    {
+        oreItem = item;
+        Awake(); // Refresh presentation and cached renderers after selecting a spawned node's resource.
+    }
 
     private void Awake()
     {
@@ -90,8 +97,9 @@ public class RockHealth : MonoBehaviour
         if (visual != null) visual.SetHealth(currentHealth, maxHealth);
         Flash();
 
-        if (currentHealth > 0) return false;
+        if (currentHealth > 0) { DamageApplied?.Invoke(this); return false; }
         Break(spawnOre: true);
+        DamageApplied?.Invoke(this);
         return true;
     }
 
@@ -157,7 +165,8 @@ public class RockHealth : MonoBehaviour
 
     private void SpawnOre()
     {
-        Vector3 center = transform.position + Vector3.up * 0.3f;
+        // Wall sockets orient the node's up axis into cave air. Keep the whole drop spread clear of that surface.
+        Vector3 center = transform.position + transform.up * 0.7f;
 
         if (oreItem != null)
         {

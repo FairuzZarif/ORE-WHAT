@@ -97,7 +97,7 @@ public sealed class MiningAcceptanceTest : MonoBehaviour
     void LateUpdate() { if (aiming != null && eye != null) Aim(); }
     void Aim()
     {
-        Vector3 direction = aiming.transform.position + Vector3.up * .53f - eye.transform.position;
+        Vector3 direction = aiming.transform.TransformPoint(Vector3.up * .53f) - eye.transform.position;
         player.transform.rotation = Quaternion.Euler(0, Mathf.Atan2(direction.x, direction.z) * Mathf.Rad2Deg, 0);
         eye.transform.localRotation = Quaternion.Euler(-Mathf.Asin(direction.normalized.y) * Mathf.Rad2Deg, 0, 0);
     }
@@ -110,6 +110,18 @@ public sealed class MiningAcceptanceTest : MonoBehaviour
     {
         aiming = rock;
         bool hit = false; RaycastHit rayHit = default;
+        var spawns = rock.GetComponentInParent<OreSpawnSystem>();
+        if (spawns != null)
+            foreach (var entry in spawns.Active)
+                if (entry.Value == rock && spawns.TryRecord(entry.Key, out var state))
+                {
+                    Move(spawns.sockets[state.socket].approach - Vector3.up * 1.05f);
+                    yield return new WaitForSeconds(.12f); Aim();
+                    hit = Physics.Raycast(eye.transform.position, eye.transform.forward, out rayHit, 3f, ~((1 << 6) | (1 << 8)), QueryTriggerInteraction.Ignore);
+                    if (hit && rayHit.collider.GetComponentInParent<RockHealth>() == rock)
+                    { Check(true, rock.OreItem.name + " reachable from validated standing position"); yield break; }
+                    break;
+                }
         for (int direction = 0; direction < 8; direction++)
         {
             Vector3 offset = Quaternion.Euler(0, (otherSide ? 180 : 0) + direction * 45, 0) * new Vector3(-.35f, .04f, -1.65f);
@@ -344,12 +356,18 @@ public sealed class MiningAcceptanceTest : MonoBehaviour
         foreach (string resource in Resources)
         {
             var rock = FindObjectsByType<RockHealth>().Where(r => r.OreItem != null && r.OreItem.name == resource
-                && r.transform.parent != null && r.transform.parent.parent != null && r.transform.parent.parent.name == "MiningRocks")
+                && (r.GetComponentInParent<OreSpawnSystem>() != null || (r.transform.parent != null
+                    && r.transform.parent.parent != null && r.transform.parent.parent.name == "MiningRocks")))
                 .OrderBy(r => Vector3.Distance(r.transform.position, new Vector3(500, 0, 700))).First();
             yield return Target(rock); yield return Equip("Pickaxe"); yield return new WaitForSeconds(.5f);
             Capture("mine-" + resource + "-intact");
             for (int i = 0; i < 4; i++) { yield return Swing(rock); Capture("mine-" + resource + "-hp" + rock.CurrentHealth); }
             rock.ShowNetworkHit(rock.MaxHealth, false);
+            var spawns = rock.GetComponentInParent<OreSpawnSystem>();
+            if (spawns != null)
+                foreach (var entry in spawns.Active)
+                    if (entry.Value == rock && spawns.TryRecord(entry.Key, out var state))
+                    { state.health = rock.MaxHealth; spawns.ApplyRecord(state, false); break; }
         }
         aiming = null;
         foreach (var item in added)

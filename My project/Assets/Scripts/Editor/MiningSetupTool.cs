@@ -81,7 +81,7 @@ public static class MiningSetupTool
         fxSo.ApplyModifiedProperties();
 
         // --- Rocks -----------------------------------------------------------
-        if (GameObject.Find("Rocks") == null)
+        if (GameObject.Find("Rocks") == null && Object.FindAnyObjectByType<OreSpawnSystem>() == null)
         {
             var rocks = new GameObject("Rocks").transform;
             PlaceRock(rockPrefab, rocks, new Vector3(-3f, 0f, 4f), 0f, 1f);

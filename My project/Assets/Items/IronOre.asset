@@ -20,7 +20,7 @@ MonoBehaviour:
   icon: {fileID: 21300000, guid: ac45c0f3307b8b34b89f5dee38edee9b, type: 3}
   worldPrefab: {fileID: 4190253592849237868, guid: 474f0b43faff0604a8c6bd5215c70184, type: 3}
   heldModel: {fileID: 0}
-  value: 20
+  value: 40
   stackable: 1
   maxStackSize: 50
   pickupSound: {fileID: 0}

@@ -69,6 +69,7 @@ public static partial class IslandMapBuilder
 
         log.AppendLine(EditTerrain(terrain, mountain, cave));
         log.AppendLine(Dress(island, mountain, cave, terrain, generated));
+        log.AppendLine(OreSpawnSetup.Rebuild(cave));
 
         if (RenderSettings.fogDensity > MaxFogDensity)
         {
@@ -723,17 +724,10 @@ public static partial class IslandMapBuilder
 
         public void Rock(Transform parent, Vector3 floor, ItemData ore, System.Random rnd)
         {
-            var rock = (GameObject)PrefabUtility.InstantiatePrefab(rockPrefab, parent);
-            // Crystal retains the original model and its original floor inset.
-            float floorInset = ore.ItemId == "crystal" ? 0.15f : 0.04f;
-            rock.transform.SetPositionAndRotation(floor - Vector3.up * floorInset, Quaternion.Euler(0f, (float)rnd.NextDouble() * 360f, 0f));
-            rock.transform.localScale = Vector3.one * Mathf.Lerp(0.9f, 1.25f, (float)rnd.NextDouble());
-            rock.name = "Rock (" + ore.name + ")";
-            var so = new SerializedObject(rock.GetComponent<RockHealth>());
-            so.FindProperty("oreItem").objectReferenceValue = ore;
-            so.ApplyModifiedPropertiesWithoutUndo();
-            rock.GetComponent<OreNodeVisual>()?.Configure(ore);
-            rocks++;
+            // Preserve the dressing random stream and reserved spacing from the former fixed nodes.
+            // Actual ore is now generated exclusively from validated sockets after all props are built.
+            rnd.NextDouble();
+            rnd.NextDouble();
         }
     }
 
@@ -953,7 +947,7 @@ public static partial class IslandMapBuilder
             string zoneName = null;
             MapZone.ZoneKind kind = MapZone.ZoneKind.Ore;
             int tier = 1;
-            if (rockPlan.ContainsKey(s.name) && s.name != "Cavern_02") { zoneName = "OreZone_" + s.name; tier = depth < 0.2f ? 1 : depth < 0.5f ? 2 : depth < 0.9f ? 3 : 4; }
+            if (rockPlan.ContainsKey(s.name) && s.name != "Cavern_02" && OreSpawnSetup.AllowedSpace(s.name)) { zoneName = "OreZone_" + s.name; tier = depth < 0.2f ? 1 : depth < 0.5f ? 2 : depth < 0.9f ? 3 : 4; }
             if (s.name == "CombatArea" || s.name == "DeepCavern" || s.name == "Cavern_02") { zoneName = "EnemyZone_" + s.name; kind = MapZone.ZoneKind.Enemy; tier = depth < 0.5f ? 1 : 2; }
             if (s.name == "BossArena") { zoneName = "BossZone_BossArena"; kind = MapZone.ZoneKind.Boss; tier = 1; }
             if (zoneName != null)

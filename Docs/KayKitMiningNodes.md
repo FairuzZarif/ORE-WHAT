@@ -1,5 +1,7 @@
 # KayKit mining nodes — implementation and validation
 
+The later [ore distribution and respawning system](OreDistribution.md) replaces fixed placement and updates the resource economy; the models and mining presentation described here remain in use.
+
 The shared mineable-node prefab uses resource-specific KayKit presentation for Copper, Iron and Gold, with progressive cracks. Crystal retains its original model and material, following the user's correction. Mining requires an explicitly mining-capable equipped item. Host-authoritative partial durability survives late joining. Existing resource identities, five-point durability, three-piece drops, bonus-drop configuration, item values, inventory, dropped/carried meshes, weapon animations and combat damage remain in place.
 
 ## Exact assets

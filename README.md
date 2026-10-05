@@ -2,7 +2,9 @@
 A cooperative first-person mining game ("friendslop" genre game). Built in Unity 6.
 
 ## Status
-Early prototype. One test level (`Assets/Scenes/PlayerTest.unity`) with mining, an inventory/hotbar, physical item pickup, a pickaxe and hammer, and two early weapons (pistol, assault rifle) with shooting and reloading. No multiplayer yet, no saving between sessions, no currency/economy - For Now.
+Early prototype. The island map has a Central Mining Hub and four mines, multiplayer, pickaxe-only mining, an inventory/hotbar, physical item pickup, a hammer, and two early weapons (pistol and assault rifle). Ore populations are randomized and respawn under host authority. No saving between sessions yet.
+
+See [Ore distribution and respawning](Docs/OreDistribution.md) for socket counts, resource progression, economy settings, tuning and validation results.
 
 ## Playing it
 **Play in the Editor:** open `My project/` in Unity 6000.6.3f1 and press Play on `Assets/Scenes/PlayerTest.unity`.

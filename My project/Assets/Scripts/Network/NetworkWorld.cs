@@ -9,8 +9,9 @@ using UnityEngine;
 ///   Rocks   a player's hit is sent to the host, which applies it once (two players can mine the same
 ///           rock; each hit counts once) and tells everyone; a broken rock goes into BrokenRocks, so it is
 ///           also gone for players who join later. DamagedRocks persists partial durability for late joins.
-///           The rocks stay ordinary scene objects (no NetworkObject):
-///           they are found by their place in the scene hierarchy, which is the same in every copy of the game.
+///           Generated ore uses a persistent OrePopulation list (generation id, socket, resource, durability).
+///           Clients render ordinary local rocks from those records; only the server rolls or replaces them.
+///           Static prototype scenes retain hierarchy ids for compatibility.
 ///   Items   only the host spawns shared items (ore drops, drops, throws: everything goes through ItemDrops).
 ///           Picking one up asks the host, which hands it to the first player who asks and removes it.
 ///           Carrying asks the host for ownership, so the carrier moves it with its own physics.
@@ -42,6 +43,36 @@ public class NetworkWorld : NetworkBehaviour, IWorldNetwork
     }
     // Persistent partial damage, so a late join receives the same state as existing clients.
     private readonly NetworkList<RockDurability> damagedRocks = new NetworkList<RockDurability>();
+    private readonly NetworkList<OrePopulation> orePopulation = new NetworkList<OrePopulation>();
+    private readonly Dictionary<int, RockHealth> spawnedOres = new Dictionary<int, RockHealth>();
+    private readonly Dictionary<RockHealth, int> spawnedIds = new Dictionary<RockHealth, int>();
+    private OreSpawnSystem oreSpawns;
+
+    public void BindOre(int id, RockHealth rock) { spawnedOres[id] = rock; spawnedIds[rock] = id; }
+    public void UnbindOre(int id)
+    {
+        if (spawnedOres.TryGetValue(id, out RockHealth rock)) spawnedIds.Remove(rock);
+        spawnedOres.Remove(id);
+    }
+    public void AddOre(OrePopulation state) { if (IsServer) orePopulation.Add(state); }
+    public void ChangeOre(OrePopulation state)
+    {
+        if (!IsServer) return;
+        for (int i = 0; i < orePopulation.Count; i++) if (orePopulation[i].id == state.id) { orePopulation[i] = state; return; }
+    }
+    public void RemoveOre(int id)
+    {
+        if (!IsServer) return;
+        for (int i = 0; i < orePopulation.Count; i++) if (orePopulation[i].id == id) { orePopulation.RemoveAt(i); return; }
+    }
+    private void OnOreChanged(NetworkListEvent<OrePopulation> change)
+    {
+        if (IsServer || oreSpawns == null) return;
+        if (change.Type == NetworkListEvent<OrePopulation>.EventType.Add || change.Type == NetworkListEvent<OrePopulation>.EventType.Value)
+            oreSpawns.ApplyRecord(change.Value, change.Type == NetworkListEvent<OrePopulation>.EventType.Value);
+        else if (change.Type == NetworkListEvent<OrePopulation>.EventType.Remove || change.Type == NetworkListEvent<OrePopulation>.EventType.RemoveAt)
+            oreSpawns.RemoveRecord(change.Value.id, true);
+    }
 
     private readonly Dictionary<int, RockHealth> rocksById = new Dictionary<int, RockHealth>();
     private readonly Dictionary<RockHealth, int> idsByRock = new Dictionary<RockHealth, int>();
@@ -58,6 +89,13 @@ public class NetworkWorld : NetworkBehaviour, IWorldNetwork
         IndexRocks();
         brokenRocks.OnListChanged += OnBrokenRocksChanged;
         damagedRocks.OnListChanged += OnDurabilityChanged;
+        oreSpawns = FindAnyObjectByType<OreSpawnSystem>();
+        orePopulation.OnListChanged += OnOreChanged;
+        if (oreSpawns != null)
+        {
+            if (IsServer) oreSpawns.StartAuthority(this);
+            else { oreSpawns.StartClient(this); foreach (OrePopulation state in orePopulation) oreSpawns.ApplyRecord(state, false); }
+        }
         if (!IsServer)
         {
             foreach (RockDurability state in damagedRocks) ShowDurability(state, false);
@@ -69,6 +107,7 @@ public class NetworkWorld : NetworkBehaviour, IWorldNetwork
     {
         brokenRocks.OnListChanged -= OnBrokenRocksChanged;
         damagedRocks.OnListChanged -= OnDurabilityChanged;
+        orePopulation.OnListChanged -= OnOreChanged;
         if (Instance == this) Instance = null;
         if (ReferenceEquals(WorldNetwork.Current, this)) WorldNetwork.Current = null;
     }
@@ -113,8 +152,26 @@ public class NetworkWorld : NetworkBehaviour, IWorldNetwork
 
     public void RequestRockHit(RockHealth rock, int damage)
     {
+        if (rock != null && spawnedIds.TryGetValue(rock, out int spawnId)) { SpawnedOreHitRpc(spawnId, damage); return; }
         if (rock != null && idsByRock.TryGetValue(rock, out int id)) RockHitRpc(id, damage);
         // Runtime-spawned nodes must be indexed by the world; never create unsynchronized host-only damage.
+    }
+
+    [Rpc(SendTo.Server)]
+    private void SpawnedOreHitRpc(int id, int damage, RpcParams rpcParams = default)
+    {
+        if (damage < 1 || damage > maxRockDamage || !spawnedOres.TryGetValue(id, out RockHealth rock)
+            || rock == null || rock.CurrentHealth <= 0) return;
+        if (!NetworkManager.ConnectedClients.TryGetValue(rpcParams.Receive.SenderClientId, out NetworkClient client)
+            || client.PlayerObject == null) return;
+        var avatar = client.PlayerObject.GetComponent<NetworkPlayerAvatar>();
+        ItemData held = avatar != null ? ItemAt(avatar.HeldItemIndex) : null;
+        var equipment = FindAnyObjectByType<PlayerEquipment>();
+        var tool = equipment != null && held != null && held.CanMine ? equipment.ControllerFor(held) as MiningToolController : null;
+        if (tool == null || damage != tool.DamagePerHit) return;
+        // Reach is checked against the synchronized avatar, with generous latency allowance.
+        if ((client.PlayerObject.transform.position - rock.transform.position).sqrMagnitude > maxReach * maxReach) return;
+        rock.ApplyMiningDamage(damage);
     }
 
     [Rpc(SendTo.Server)]
