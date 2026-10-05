@@ -5829,7 +5829,7 @@ MonoBehaviour:
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::CaveAmbience
   layout: {fileID: 253801558}
-  entrance: {fileID: 1876172357}
+  entrance: {fileID: 952241892}
   mainTunnel: {fileID: 323108350}
   forestClip: {fileID: 8300000, guid: 13d8072a32714ea69932df86bf0be688, type: 3}
   caveClip: {fileID: 8300000, guid: 5ef68ba8a98a414db19ea15d99691656, type: 3}

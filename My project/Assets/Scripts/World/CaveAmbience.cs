@@ -37,15 +37,9 @@ public class CaveAmbience : MonoBehaviour
 
     private void Start()
     {
-        if (layout == null) layout = GetComponent<CaveLayout>();
-        var playerObject = GameObject.FindWithTag("Player");
-        player = playerObject != null ? playerObject.transform : null;
+        ResolveReferences();
         if (player == null || layout == null || entrance == null || mainTunnel == null || mainTunnel.End == null)
-        {
-            Debug.LogWarning("Cave ambience needs the player, cave layout, entrance marker and main tunnel.", this);
-            enabled = false;
-            return;
-        }
+            Debug.LogWarning("Cave ambience could not locate the player or cave entrance. Forest ambience will play until the cave can be located.", this);
 
         forestSource = CreateSource("Forest Ambience", forestClip);
         caveSource = CreateSource("Cave Ambience", caveClip);
@@ -55,8 +49,30 @@ public class CaveAmbience : MonoBehaviour
         if (caveClip != null) caveSource.Play();
     }
 
+    private void ResolveReferences()
+    {
+        if (layout == null) layout = GetComponent<CaveLayout>();
+        if (entrance == null)
+        {
+            GameObject marker = GameObject.Find("Landmark_CaveEntrance");
+            if (marker != null) entrance = marker.transform;
+        }
+        if ((mainTunnel == null || mainTunnel.End == null) && layout != null)
+        {
+            foreach (CaveSpace space in layout.GetComponentsInChildren<CaveSpace>(true))
+                if (space.name == "MainTunnel" && space.End != null) { mainTunnel = space; break; }
+        }
+        if (player == null)
+        {
+            GameObject playerObject = GameObject.FindWithTag("Player");
+            if (playerObject != null) player = playerObject.transform;
+        }
+    }
+
     private void Update()
     {
+        if (player == null || layout == null || entrance == null || mainTunnel == null || mainTunnel.End == null)
+            ResolveReferences();
         float target = TargetCaveBlend();
         caveBlend = Mathf.Lerp(caveBlend, target, 1f - Mathf.Exp(-responseSpeed * Time.deltaTime));
         ApplyVolumes();
@@ -91,6 +107,8 @@ public class CaveAmbience : MonoBehaviour
 
     private float TargetCaveBlend()
     {
+        if (player == null || layout == null || entrance == null || mainTunnel == null || mainTunnel.End == null)
+            return 0f;
         Vector3 inward = mainTunnel.End.position - mainTunnel.transform.position;
         inward.y = 0f;
         inward.Normalize();
