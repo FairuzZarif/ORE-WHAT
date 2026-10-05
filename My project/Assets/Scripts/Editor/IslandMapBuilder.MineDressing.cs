@@ -313,11 +313,14 @@ public static partial class IslandMapBuilder
                 foreach (float x in new[] { -0.8f, 0.8f }) m.Box(new Vector3(x, 0.2f, 0f), Quaternion.identity, new Vector3(0.12f, 0.4f, 0.4f), 0);
                 size = new Vector3(2f, 0.5f, 0.45f); centre = new Vector3(0f, 0.25f, 0f);
                 break;
-            default: // "Sign"
-                m = new PropMesh(d.wood);
-                m.Box(new Vector3(0f, 1.1f, 0.1f), Quaternion.identity, new Vector3(0.15f, 2.2f, 0.15f), 0);
-                m.Box(new Vector3(0f, 1.95f, 0f), Quaternion.identity, new Vector3(2.4f, 0.9f, 0.08f), 0);
-                size = Vector3.zero; centre = Vector3.zero;
+            default:
+                if (!OldMineKit(d, name, out m, out size, out centre))
+                {
+                    m = new PropMesh(d.wood);
+                    m.Box(new Vector3(0f, 1.1f, 0.1f), Quaternion.identity, new Vector3(0.15f, 2.2f, 0.15f), 0);
+                    m.Box(new Vector3(0f, 1.95f, 0f), Quaternion.identity, new Vector3(2.4f, 0.9f, 0.08f), 0);
+                    size = Vector3.zero; centre = Vector3.zero;
+                }
                 break;
         }
         GameObject go = m.Build(name, null, Vector3.zero, "Mine" + name);
@@ -477,7 +480,8 @@ public static partial class IslandMapBuilder
         Vector3 side = Vector3.Cross(Vector3.up, dir);
         Quaternion facing = Quaternion.LookRotation(dir);
         int sets = 0;
-        for (float along = 5f; along < length - 4f; along += spacing)
+        for (float along = 4f + WorldNoise.Value(a * .1f, 173) * 3f; along < length - 4f;
+             along += spacing * Mathf.Lerp(.84f, 1.18f, WorldNoise.Value((a + dir * along) * .17f, 193)))
         {
             Vector3 p = Vector3.Lerp(a, b, along / length);
             if (!RockRay(d, p + Vector3.up * 3f, Vector3.down, 8f, out RaycastHit floorHit)) continue;
@@ -487,11 +491,20 @@ public static partial class IslandMapBuilder
             float span = Vector3.Distance(left.point, right.point);
             if (span > maxSpan || span < 3f) continue;
             float top = RockRay(d, f + Vector3.up * 1f, Vector3.up, 14f, out RaycastHit ceiling) ? ceiling.point.y - 0.4f : f.y + 4.4f;
-            top = Mathf.Min(top, f.y + 4.4f);
+            top = Mathf.Min(top, f.y + 7.2f); // let maintained frames actually reach the newly angular ceiling
             if (top - f.y < 2.8f) continue;
 
             Vector3 footL = left.point - side * -0.35f, footR = right.point - side * 0.35f; // a little in from each wall
             footL.y = GroundY(d, footL); footR.y = GroundY(d, footR);
+            // Fit the entire cap, including its depth, below the rock. A centre-only ceiling ray
+            // embeds the ends of a tall frame in the sloping shoulders of the tunnel.
+            for (int sample = 0; sample <= 8; sample++)
+                foreach (float offset in new[] { -.3f, 0f, .3f })
+                {
+                    Vector3 probe = Vector3.Lerp(footL, footR, sample / 8f) + dir * offset + Vector3.up;
+                    if (RockRay(d, probe, Vector3.up, 14f, out RaycastHit roof)) top = Mathf.Min(top, roof.point.y - .4f);
+                }
+            if (top - Mathf.Max(footL.y, footR.y) < 2.8f) continue;
             bool broken = rnd.NextDouble() < damaged;
             int kind = broken ? rnd.Next(3) : -1;
             var set = new GameObject("Timber Set").transform;
@@ -550,10 +563,20 @@ public static partial class IslandMapBuilder
             frame.SetParent(parent, false);
             frame.position = at;
             Vector3 footL = l.point + side * 0.45f, footR = r.point - side * 0.45f;
+            if (span <= 13f)
+                for (int sample = 0; sample <= 8; sample++)
+                    foreach (float offset in new[] { -.45f, 0f, .45f })
+                    {
+                        Vector3 probe = Vector3.Lerp(footL, footR, sample / 8f) + inward * offset;
+                        probe.y = GroundY(d, probe) + 1f;
+                        if (RockRay(d, probe, Vector3.up, 16f, out RaycastHit roof)) top = Mathf.Min(top, roof.point.y - .9f);
+                    }
             foreach (Vector3 foot0 in new[] { footL, footR })
             {
                 Vector3 foot = foot0; foot.y = GroundY(d, foot);
-                Piece("Posts/Post_Reinforced_A", frame, foot - Vector3.up * 0.15f, facing, new Vector3(2.4f, (top - foot.y + 0.2f) / 3.8f, 2.4f), true);
+                float postTop = top;
+                if (span > 13f && RockRay(d, foot + Vector3.up, Vector3.up, 16f, out RaycastHit roof)) postTop = roof.point.y - .15f;
+                Piece("Posts/Post_Reinforced_A", frame, foot - Vector3.up * 0.15f, facing, new Vector3(2.4f, (postTop - foot.y + 0.2f) / 3.8f, 2.4f), true);
             }
             if (span <= 13f && top - at.y > 3f)
             {
@@ -756,7 +779,14 @@ public static partial class IslandMapBuilder
             if (S(needed) == null) { missed.Add("mine dressing: " + needed + " is missing, dressing skipped"); return missed; }
         propTemplates = new Dictionary<string, GameObject>();
         signSpots = new List<Vector3>();
-        try { DressMineSpaces(d, S, props, lighting, zones, missed); }
+        try
+        {
+            DressMineSpaces(d, S, props, lighting, zones, missed);
+            string arena = DressOldMineBossArena(d, S("BossArena"), S("OldMine_BossThreshold"),
+                Child(props, "BossArena"), Child(lighting, "BossArena"), zones);
+            if (arena != null) missed.Add(arena);
+            DressOldMineArt(d, S, props, lighting, missed);
+        }
         finally
         {
             foreach (GameObject t in propTemplates.Values) if (t != null) Object.DestroyImmediate(t); // never left in the scene
@@ -1204,8 +1234,32 @@ public static partial class IslandMapBuilder
         Along(lastPoints, "OldMine_Approach_1", 0.12f, 2f); Along(lastPoints, "OldMine_Approach_1", 0.9f, 2f);
         Along(lastPoints, "OldMine_Approach_2", 0.08f, 2f); Along(lastPoints, "OldMine_Approach_2", 0.5f, 2f); Along(lastPoints, "OldMine_Approach_2", 0.93f, 2f);
         Along(lastPoints, "OldMine_ArenaGate", 0.15f, -2.5f); Along(lastPoints, "OldMine_ArenaGate", 0.75f, -2.5f);
-        List<Vector3> lastLine = Rails(d, m1, lastPoints, true, true, routes);
-        if (lastLine.Count > 20) CartOnRails(m1, lastLine, lastLine.Count * 1.2f, "Mine_Cart_BB_grp"); // left on the way down
+        // Broken rail runs with gaps become sparser toward the entrance. Keep the centre line unobstructed.
+        for (int i = 0; i + 1 < lastPoints.Count; i += 2)
+            Rails(d, m1, new List<Vector3> { lastPoints[i], Vector3.Lerp(lastPoints[i], lastPoints[i + 1], 0.65f) }, false, false, routes);
+        var approachRandom = new System.Random(19031); // don't shift the shared dressing sequence for other mines
+        foreach (string name in new[] { "OldMine_Approach_1", "OldMine_Approach_2", "OldMine_ArenaGate" })
+        {
+            CaveSpace tunnel = S(name);
+            if (tunnel == null || tunnel.End == null) continue;
+            Vector3 direction = Flat(tunnel.End.position - tunnel.transform.position).normalized;
+            Quaternion rotation = Quaternion.LookRotation(direction);
+            Vector3 side = Vector3.Cross(Vector3.up, direction);
+            for (int i = 0; i < 2; i++)
+            {
+                Vector3 at = Vector3.Lerp(tunnel.transform.position, tunnel.End.position, i == 0 ? 0.25f : 0.7f);
+                at.y = GroundY(d, at);
+                // Standing stumps and a fallen beam beside the route; no beam crosses above the player's head.
+                Vector3 edge = at + side * (tunnel.Size.x * 0.75f);
+                Piece("Posts/Post_Reinforced_A", m1, edge, rotation,
+                    new Vector3(1.2f, i == 0 ? 0.65f : 0.4f, 1.2f), true);
+                Piece("Posts/Beam_A", m1, edge + direction * 3f + Vector3.up * 0.25f,
+                    rotation * Quaternion.Euler(0f, 85f, 6f), new Vector3(1f, 1f, 1f), false);
+            }
+            if (PropSpot(d, routes, tunnel, approachRandom, 0.65f, 0.8f, 1.2f, out Vector3 cartAt))
+                Piece("MineCart/Mine_Cart_AA", m1, cartAt + Vector3.up * 0.15f,
+                    rotation * Quaternion.Euler(0f, -20f, 75f), Vector3.one, true);
+        }
         if (hall != null)
         {
             int formations = 0;
@@ -1220,7 +1274,7 @@ public static partial class IslandMapBuilder
         foreach (string dark in new[] { "OldMine_Approach_2", "OldMine_ApproachTurn" })
             if (PropSpot(d, routes, S(dark), rnd, 0.6f, 0.9f, 0.5f, out Vector3 deadAt)) d.Lamp(m1, deadAt, S(dark).transform.position, Color.white, 0f, 0f, false);
         Vector3 gateIn = Flat(gate.End.position - gate.transform.position).normalized;
-        AddPointLight(lights, "Arena Gate Glow", gate.End.position - gateIn * 6f + Vector3.up * 5f, new Color(1f, 0.38f, 0.22f), 3.5f, 26f);
+        AddPointLight(lights, "Arena Gate Glow", gate.End.position - gateIn * 6f + Vector3.up * 5f, new Color(1f, 0.55f, 0.24f), 3.5f, 22f);
         d.lights++;
     }
 
@@ -1546,6 +1600,9 @@ public static partial class IslandMapBuilder
             Vector3 toCentre = Flat(s.transform.position - at).normalized, along = Vector3.Cross(Vector3.up, toCentre);
             float yaw = Quaternion.LookRotation(toCentre).eulerAngles.y;
             int kind = rnd.Next(3);
+            // Recompose Old Mine stores as work stations at the original reserved footprints.
+            // Keep the shared random sequence intact so other mines retain their dressing.
+            if (MineOf(s.name) == OldMine && DressOldMineStores(d, s, parent, at, yaw, g, kind)) continue;
             if (kind == 0)
             {
                 Prop(d, "Crate", parent, at, yaw + 8f);

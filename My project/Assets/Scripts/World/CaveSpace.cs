@@ -25,6 +25,21 @@ public class CaveSpace : MonoBehaviour
     [Tooltip("How bumpy the walls are, metres.")]
     [SerializeField, Min(0f)] private float wallNoise = 2.5f;
 
+    [Header("Angular geology (rebuild after editing)")]
+    [SerializeField] private bool rockFacets;
+    [SerializeField, Range(0f, 1.5f)] private float facetStrength = 1f;
+    [SerializeField, Min(3f)] private float rockFeatureSize = 5.5f;
+    [SerializeField] private bool excavated;
+    [SerializeField, HideInInspector] private bool rockStyleInitialized;
+
+    /// <summary>One-time defaults by mine; later rebuilds preserve the author's surface tuning.</summary>
+    public void InitializeRockStyle(float strength, float featureSize, bool cutTunnel)
+    {
+        if (rockStyleInitialized) return;
+        rockFacets = kind != Kind.OpenCut; facetStrength = strength; rockFeatureSize = featureSize;
+        excavated = cutTunnel; rockStyleInitialized = true;
+    }
+
     [Header("Floor shape (keep slopes walkable: the player's slope limit is 45°)")]
     [Tooltip("Gentle rolling of the floor, metres up/down (about 14 m between bumps). 0 = flat.")]
     [SerializeField, Min(0f)] private float floorRoll;
@@ -62,6 +77,7 @@ public class CaveSpace : MonoBehaviour
     private Quaternion inverseRotation;
     private float abLengthSq, verticalRadius;
     private int seed;
+    private Vector3 tunnelSide;
 
     /// <summary>Caches positions; call after moving anything (CaveLayout.Prepare does it).</summary>
     public void Prepare(int noiseSeed)
@@ -87,6 +103,7 @@ public class CaveSpace : MonoBehaviour
             verticalRadius = Mathf.Max(1f, size.y * 0.6f);
             axisA = a + Vector3.up * (size.y * 0.4f);
             axisAB = b - a;
+            tunnelSide = Vector3.Cross(Vector3.up, axisAB).normalized;
             if (kind == Kind.OpenCut) axisAB.y = 0f;
             abLengthSq = Mathf.Max(0.0001f, axisAB.sqrMagnitude);
             float w = size.x + margin;
@@ -101,9 +118,17 @@ public class CaveSpace : MonoBehaviour
     public float Distance(Vector3 p, out float t)
     {
         t = 0f;
-        float noise = wallNoise > 0f ? WorldNoise.Signed2(p * 0.08f, seed) * wallNoise : 0f;
+        float noise;
+        if (rockFacets)
+        {
+            float layers = 1f - Mathf.Abs(Mathf.Repeat((p.y + p.x * 0.21f + p.z * 0.13f) / rockFeatureSize, 1f) * 2f - 1f);
+            noise = wallNoise * facetStrength * (WorldNoise.Faceted(p / rockFeatureSize, seed) * 0.85f
+                + WorldNoise.Faceted(p / (rockFeatureSize * 2.3f), seed + 43) * 0.28f + (layers - 0.5f) * 0.4f);
+        }
+        else noise = wallNoise > 0f ? WorldNoise.Signed2(p * 0.08f, seed) * wallNoise : 0f;
         float floorY;
         float d;
+        float original;
         if (kind == Kind.Room)
         {
             Vector3 q = inverseRotation * (p - center);
@@ -111,6 +136,16 @@ public class CaveSpace : MonoBehaviour
             Vector3 q1 = new Vector3(q0.x / radii.x, q0.y / radii.y, q0.z / radii.z);
             float k0 = q0.magnitude, k1 = Mathf.Max(0.0001f, q1.magnitude);
             d = k0 * (k0 - 1f) / k1;
+            original = d;
+            if (rockFacets)
+            {
+                Vector3 aq = new Vector3(Mathf.Abs(q0.x), Mathf.Abs(q0.y), Mathf.Abs(q0.z));
+                float planes = Mathf.Max(aq.x, Mathf.Max(aq.y, aq.z));
+                planes = Mathf.Max(planes, Mathf.Max(aq.x + aq.y, Mathf.Max(aq.x + aq.z, aq.y + aq.z)) * 0.7071068f);
+                planes = Mathf.Max(planes, (aq.x + aq.y + aq.z) * 0.5773503f);
+                float angular = (planes - 0.88f) * Mathf.Min(radii.x, Mathf.Min(radii.y, radii.z));
+                d = Mathf.Lerp(d, angular, Mathf.Clamp01(facetStrength));
+            }
             floorY = a.y;
             if (plateauHeight != 0f)
             {
@@ -127,17 +162,42 @@ public class CaveSpace : MonoBehaviour
             {
                 v.y = 0f;
                 d = v.magnitude - size.x;
+                original = d;
             }
             else
             {
+                float across = Vector3.Dot(v, tunnelSide);
                 v.y *= size.x / verticalRadius;
                 d = (v.magnitude - size.x) * Mathf.Min(1f, verticalRadius / size.x);
+                original = d;
+                if (rockFacets)
+                {
+                    float ax = Mathf.Abs(across), ay = Mathf.Abs(v.y);
+                    float planes = Mathf.Max(ax, Mathf.Max(ay, (ax + ay) * 0.7071068f));
+                    // Keep the existing end joins and walking corridor; change the rock cross-section between them.
+                    float join = Smooth(0.03f, 0.16f, t) * Smooth(0.03f, 0.16f, 1f - t);
+                    float angular = (planes - size.x * (excavated ? 0.82f : 0.87f)) * Mathf.Min(1f, verticalRadius / size.x);
+                    d = Mathf.Lerp(d, angular, join * Mathf.Clamp01(facetStrength));
+                }
             }
             floorY = a.y + (b.y - a.y) * StepProfile(t);
         }
         floorY += WorldNoise.Signed2(p * 0.15f, seed + 5) * 0.2f;
         if (floorRoll > 0f) floorY += WorldNoise.Signed2(p * 0.07f, seed + 9) * floorRoll;
-        return Mathf.Max(d + noise, floorY - p.y);
+        float shell = d + noise;
+        if (rockFacets)
+        {
+            float existingShell = original + WorldNoise.Signed2(p * 0.08f, seed) * wallNoise;
+            // Carve angular faces inward, retaining the authored partition walls between mines.
+            shell = Mathf.Max(shell, existingShell);
+            // The floor and headroom of the existing route take priority over surface variation.
+            // This also retains the intentionally low crouch passage and stepped descending tunnels.
+            // The two-metre mesher samples cells above the floor as well: retain the
+            // entire lower band so angular shoulders cannot tilt a nearby floor cell.
+            float route = 1f - Smooth(2.8f, 4.2f, p.y - floorY);
+            shell = Mathf.Lerp(shell, existingShell, route);
+        }
+        return Mathf.Max(shell, floorY - p.y);
     }
 
     public float DepthAt(float t) => kind == Kind.Room ? depth : Mathf.Lerp(depth, endDepth, t);

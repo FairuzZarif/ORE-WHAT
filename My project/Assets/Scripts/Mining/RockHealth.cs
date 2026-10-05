@@ -37,6 +37,7 @@ public class RockHealth : MonoBehaviour
     private Color[] originalColors;
     private MaterialPropertyBlock propertyBlock;
     private float flashTimer;
+    private OreNodeVisual visual;
 
     private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor"); // URP Lit
     private static readonly int ColorId = Shader.PropertyToID("_Color");         // Built-in Standard
@@ -44,12 +45,22 @@ public class RockHealth : MonoBehaviour
     public int CurrentHealth => currentHealth;
     public int MaxHealth => maxHealth;
     public ItemData OreItem => oreItem;
+    public event System.Action<RockHealth> DamageApplied;
+
+    public void InitializeOre(ItemData item)
+    {
+        oreItem = item;
+        Awake(); // Refresh presentation and cached renderers after selecting a spawned node's resource.
+    }
 
     private void Awake()
     {
         currentHealth = maxHealth;
+        visual = GetComponent<OreNodeVisual>();
+        if (visual != null) { visual.Configure(oreItem); visual.SetHealth(currentHealth, maxHealth); }
         propertyBlock = new MaterialPropertyBlock();
 
+        // Inactive crack renderers stay dark instead of inheriting the hit flash.
         renderers = GetComponentsInChildren<Renderer>();
         originalColors = new Color[renderers.Length];
         for (int i = 0; i < renderers.Length; i++)
@@ -63,40 +74,42 @@ public class RockHealth : MonoBehaviour
     }
 
     /// <summary>Called by MiningController when the pickaxe hits this rock.</summary>
-    public void TakeHit(int damage)
+    public void TakeMiningHit(int damage, ItemData miningTool)
     {
-        if (currentHealth <= 0) return; // already breaking
+        if (currentHealth <= 0 || damage <= 0 || miningTool == null || !miningTool.CanMine) return;
 
-        // Multiplayer: flash right away for feel, but the host applies the damage (once) and tells everyone.
+        // Multiplayer: the host accepts damage once; received durability updates drive both flash and cracks.
         if (WorldNetwork.Current != null)
         {
-            Flash();
             WorldNetwork.Current.RequestRockHit(this, damage);
             return;
         }
-        ApplyDamage(damage);
+        ApplyMiningDamage(damage);
     }
 
     /// <summary>Removes health, flashes, and breaks the rock (with its drops) at zero. Returns true if it broke.
     /// Single player: every hit. Multiplayer: only the host calls this.</summary>
-    public bool ApplyDamage(int damage)
+    internal bool ApplyMiningDamage(int damage)
     {
-        if (currentHealth <= 0) return false;
+        if (currentHealth <= 0 || damage <= 0) return false;
 
-        currentHealth -= damage;
+        currentHealth = Mathf.Max(0, currentHealth - damage);
+        if (visual != null) visual.SetHealth(currentHealth, maxHealth);
         Flash();
 
-        if (currentHealth > 0) return false;
+        if (currentHealth > 0) { DamageApplied?.Invoke(this); return false; }
         Break(spawnOre: true);
+        DamageApplied?.Invoke(this);
         return true;
     }
 
     /// <summary>Multiplayer: another player hit this rock; shows the hit and the host's health.</summary>
-    public void ShowNetworkHit(int health)
+    public void ShowNetworkHit(int health, bool flash = true)
     {
         if (currentHealth <= 0) return;
-        currentHealth = health;
-        Flash();
+        currentHealth = Mathf.Clamp(health, 0, maxHealth);
+        if (visual != null) visual.SetHealth(currentHealth, maxHealth);
+        if (flash) Flash();
     }
 
     /// <summary>Multiplayer (not the host): the host broke this rock. No drops here: the host spawns the shared ore.</summary>
@@ -104,6 +117,7 @@ public class RockHealth : MonoBehaviour
     {
         if (this == null) return;
         currentHealth = 0;
+        if (visual != null) visual.SetHealth(0, maxHealth);
         Break(spawnOre: false);
     }
 
@@ -151,7 +165,8 @@ public class RockHealth : MonoBehaviour
 
     private void SpawnOre()
     {
-        Vector3 center = transform.position + Vector3.up * 0.3f;
+        // Wall sockets orient the node's up axis into cave air. Keep the whole drop spread clear of that surface.
+        Vector3 center = transform.position + transform.up * 0.7f;
 
         if (oreItem != null)
         {

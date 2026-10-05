@@ -1,5 +1,7 @@
 # Map layout: the Central Mining Hub and four mines
 
+The later [Old Mine environment art pass](OldMineEnvironmentArt.md) documents the regenerated dressing, shared prop kit, current 98-space validation, and first-person/multiplayer acceptance checks. [Ore distribution and respawning](OreDistribution.md) supersedes the historical fixed-node resource placement described below.
+
 The island's cave is organised as one hub with four self-contained mines. Each mine has its own entrance in the hub, and the hub is the only connection between mines.
 
 ```
@@ -59,6 +61,8 @@ Everything is still the island map system: every room and tunnel is a `CaveSpace
 | "COMPANY NOTICES" board | company information |
 
 ## The four mines
+
+The Old Mine now includes its expanded shaft/lower workings and a distinct final boss threshold. Its existing 68 x 60 m arena has an open centre and wrecked timber headframe at the far edge. See [OldMineBossArena.md](OldMineBossArena.md) for the current approach, reservation markers, and validation results.
 
 The route columns are walked in order; "Large area" is the space reserved for a future major encounter.
 

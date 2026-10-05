@@ -57,6 +57,7 @@ public static partial class IslandMapBuilder
         if (mountain == null) mountain = CreateMountain(island, terrain);
         if (cave == null) cave = CreateCave(island, terrain);
         log.AppendLine(AddMineNetwork(cave)); // the mine network around the original route (only spaces that are missing)
+        InitializeCaveGeology(cave);
         cave.Prepare();
 
         BackupTerrain(terrain, log);
@@ -69,6 +70,8 @@ public static partial class IslandMapBuilder
 
         log.AppendLine(EditTerrain(terrain, mountain, cave));
         log.AppendLine(Dress(island, mountain, cave, terrain, generated));
+        log.AppendLine(OreSpawnSetup.Rebuild(cave));
+        log.AppendLine(DressCaveGeology(cave));
 
         if (RenderSettings.fogDensity > MaxFogDensity)
         {
@@ -723,14 +726,10 @@ public static partial class IslandMapBuilder
 
         public void Rock(Transform parent, Vector3 floor, ItemData ore, System.Random rnd)
         {
-            var rock = (GameObject)PrefabUtility.InstantiatePrefab(rockPrefab, parent);
-            rock.transform.SetPositionAndRotation(floor - Vector3.up * 0.15f, Quaternion.Euler(0f, (float)rnd.NextDouble() * 360f, 0f));
-            rock.transform.localScale = Vector3.one * Mathf.Lerp(0.9f, 1.25f, (float)rnd.NextDouble());
-            rock.name = "Rock (" + ore.name + ")";
-            var so = new SerializedObject(rock.GetComponent<RockHealth>());
-            so.FindProperty("oreItem").objectReferenceValue = ore;
-            so.ApplyModifiedPropertiesWithoutUndo();
-            rocks++;
+            // Preserve the dressing random stream and reserved spacing from the former fixed nodes.
+            // Actual ore is now generated exclusively from validated sockets after all props are built.
+            rnd.NextDouble();
+            rnd.NextDouble();
         }
     }
 
@@ -746,7 +745,7 @@ public static partial class IslandMapBuilder
             metal = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Prototype/Pickaxe_Head.mat"),
             glow = SimpleMaterial("LanternGlow", new Color(1f, 0.85f, 0.55f), new Color(4f, 2.4f, 0.9f)),
             crystal = CrystalMaterial(),
-            rockPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Rock.prefab"),
+            rockPrefab = KayKitMiningSetup.SharedRockPrefab(),
             oreRockPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(OreRockPrefab),
         };
         d.lampPrefab = LampPrefab(d.wood, d.metal, d.glow);
@@ -879,7 +878,7 @@ public static partial class IslandMapBuilder
         {
             { "MainTunnel", 2 }, { "Cavern_01", 4 }, { "OreArea_01", 1 }, { "SideTunnel", 1 }, { "SideCave", 2 }, { "Tunnel_02", 2 },
             { "Cavern_02", 5 }, { "MiningArea_02", 2 }, { "CombatTunnel", 1 }, { "CombatArea", 3 }, { "DeepTunnel_A", 1 },
-            { "DeepTunnel_B", 1 }, { "DeepTunnel_C", 1 }, { "DeepCavern", 5 }, { "BossGate", 1 }, { "BossArena", 6 },
+            { "DeepTunnel_B", 1 }, { "DeepTunnel_C", 1 }, { "DeepCavern", 5 }, { "BossGate", 1 },
         };
         ItemData copper = Item("CopperOre"), iron = Item("IronOre"), gold = Item("GoldOre"), crystalOre = Item("Crystal");
         var rockPlan = new Dictionary<string, ItemData[]>
@@ -891,9 +890,8 @@ public static partial class IslandMapBuilder
             { "MiningArea_02", new[] { iron, iron, iron, gold } },
             { "CombatArea", new[] { gold } },
             { "DeepCavern", new[] { gold, gold, crystalOre, crystalOre } },
-            { "BossArena", new[] { crystalOre, crystalOre } },
         };
-        var crystalPlan = new Dictionary<string, int> { { "MiningArea_02", 1 }, { "CombatArea", 1 }, { "DeepCavern", 2 }, { "BossArena", 3 } };
+        var crystalPlan = new Dictionary<string, int> { { "MiningArea_02", 1 }, { "CombatArea", 1 }, { "DeepCavern", 2 } };
         // The mine network's spaces (IslandMapBuilder.MineDressing.cs).
         foreach (var kv in MineLampPlan) lampPlan[kv.Key] = kv.Value;
         foreach (var kv in MineRocks(copper, iron, gold, crystalOre)) rockPlan[kv.Key] = kv.Value;
@@ -951,9 +949,9 @@ public static partial class IslandMapBuilder
             string zoneName = null;
             MapZone.ZoneKind kind = MapZone.ZoneKind.Ore;
             int tier = 1;
-            if (rockPlan.ContainsKey(s.name) && s.name != "Cavern_02") { zoneName = "OreZone_" + s.name; tier = depth < 0.2f ? 1 : depth < 0.5f ? 2 : depth < 0.9f ? 3 : 4; }
+            if (rockPlan.ContainsKey(s.name) && s.name != "Cavern_02" && OreSpawnSetup.AllowedSpace(s.name)) { zoneName = "OreZone_" + s.name; tier = depth < 0.2f ? 1 : depth < 0.5f ? 2 : depth < 0.9f ? 3 : 4; }
             if (s.name == "CombatArea" || s.name == "DeepCavern" || s.name == "Cavern_02") { zoneName = "EnemyZone_" + s.name; kind = MapZone.ZoneKind.Enemy; tier = depth < 0.5f ? 1 : 2; }
-            if (s.name == "BossArena") { zoneName = "BossZone_BossArena"; kind = MapZone.ZoneKind.Boss; tier = 4; }
+            if (s.name == "BossArena") { zoneName = "BossZone_BossArena"; kind = MapZone.ZoneKind.Boss; tier = 1; }
             if (zoneName != null)
             {
                 var z = new GameObject(zoneName).AddComponent<MapZone>();
@@ -963,8 +961,6 @@ public static partial class IslandMapBuilder
             }
         }
         missed.AddRange(DressMineNetwork(d, spaces, props, lighting, zones));
-        string arena = DressBossArena(d, Space("BossArena"), Space("BossGate") ?? Space("OldMine_ArenaGate"), Child(props, "BossArena"), Child(lighting, "BossArena"));
-        if (arena != null) missed.Add(arena);
 
         var start = new GameObject("PlayerStart").AddComponent<MapZone>();
         start.transform.SetParent(zones, false);
@@ -991,7 +987,7 @@ public static partial class IslandMapBuilder
     private const float RailSideOffset = 6f; // rails / cart this far right of the route's centre line
 
     /// <summary>A site floodlight: a wooden pole with a lamp head and a Spot Light aimed at a point.</summary>
-    private static void Floodlight(Dresser d, Transform propParent, Transform lightParent, Vector3 foot, Vector3 aimAt, string tag)
+    private static void Floodlight(Dresser d, Transform propParent, Transform lightParent, Vector3 foot, Vector3 aimAt, string tag, string assetName = "Floodlight")
     {
         Vector3 head = foot + Vector3.up * 5f;
         Vector3 flat = aimAt - foot; flat.y = 0f;
@@ -1001,7 +997,7 @@ public static partial class IslandMapBuilder
         pole.Box(Vector3.up * 0.15f, facing, new Vector3(0.9f, 0.3f, 0.9f), 0);
         pole.Box(Vector3.up * 5.1f + facing * Vector3.forward * 0.25f, facing, new Vector3(0.7f, 0.5f, 0.3f), 1);
         pole.Box(Vector3.up * 5.1f + facing * Vector3.forward * 0.42f, facing, new Vector3(0.55f, 0.36f, 0.04f), 2);
-        GameObject go = pole.Build("Floodlight " + tag, propParent, foot, "Floodlight");
+        GameObject go = pole.Build("Floodlight " + tag, propParent, foot, assetName);
         var col = go.AddComponent<BoxCollider>(); col.center = Vector3.up * 2.5f; col.size = new Vector3(0.3f, 5f, 0.3f);
 
         var l = new GameObject("Floodlight " + tag, typeof(Light)).GetComponent<Light>();
@@ -1011,145 +1007,6 @@ public static partial class IslandMapBuilder
         l.intensity = 60f; l.range = 40f; l.spotAngle = 60f; l.innerSpotAngle = 35f;
         l.shadows = LightShadows.None;
         d.lights++;
-    }
-
-    /// <summary>
-    /// The boss arena's look (no gameplay): a stone platform with a metal-edged inlay, a ring of rock formations
-    /// around the edge with a gap at the gate, a timber frame at the gate, and a mining headframe over a glowing
-    /// crystal in the middle, lit from above. Returns a note if something couldn't be placed.
-    /// </summary>
-    private static string DressBossArena(Dresser d, CaveSpace arena, CaveSpace gate, Transform props, Transform lights)
-    {
-        if (arena == null) return null;
-        Vector3 centre = arena.transform.position;
-        if (!Physics.Raycast(centre + Vector3.up * 3f, Vector3.down, out RaycastHit floorHit, 10f)) return "BossArena floor";
-        centre = floorHit.point;
-        Material stone = SimpleMaterial("ArenaStone", new Color(0.24f, 0.23f, 0.27f), Color.black);
-
-        // Floor: a 14 m stone disc 0.15 m above the rock floor (a normal step up), an inner metal-edged ring.
-        var floor = new PropMesh(stone, d.metal, d.wood);
-        floor.Cyl(Vector3.up * -0.05f, Quaternion.identity, new Vector3(14f, 0.2f, 14f), 0); // the built-in Cylinder.fbx mesh has radius 1
-        floor.Cyl(Vector3.up * -0.02f, Quaternion.identity, new Vector3(6.5f, 0.2f, 6.5f), 2);
-        for (int i = 0; i < 28; i++)
-        {
-            float a = i / 28f * Mathf.PI * 2f;
-            foreach (float r in new[] { 13.9f, 6.5f })
-            {
-                if (r < 10f && i % 2 == 1) continue;
-                Vector3 at = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * r + Vector3.up * 0.16f;
-                floor.Box(at, Quaternion.Euler(0f, -a * Mathf.Rad2Deg, 0f), new Vector3(0.35f, 0.06f, r < 10f ? 1.5f : 3.2f), 1);
-            }
-        }
-        GameObject platform = floor.Build("ArenaFloor", props, centre, "ArenaFloor");
-        platform.AddComponent<MeshCollider>().sharedMesh = platform.GetComponent<MeshFilter>().sharedMesh;
-
-        // Centre: a mining headframe (4 posts, braces, a pulley wheel and cable) over a glowing crystal.
-        var frame = new PropMesh(d.wood, d.metal);
-        float h = 9f, half = 2.3f;
-        var postColliders = new List<Vector3>();
-        foreach (float x in new[] { -half, half })
-            foreach (float z in new[] { -half, half })
-            {
-                frame.Box(new Vector3(x, h * 0.5f, z), Quaternion.identity, new Vector3(0.45f, h, 0.45f), 0);
-                postColliders.Add(new Vector3(x, h * 0.5f, z));
-            }
-        foreach (float y in new[] { 3.5f, h })
-        {
-            frame.Box(new Vector3(0f, y, -half), Quaternion.identity, new Vector3(half * 2f + 0.5f, 0.35f, 0.35f), 0);
-            frame.Box(new Vector3(0f, y, half), Quaternion.identity, new Vector3(half * 2f + 0.5f, 0.35f, 0.35f), 0);
-            frame.Box(new Vector3(-half, y, 0f), Quaternion.identity, new Vector3(0.35f, 0.35f, half * 2f + 0.5f), 0);
-            frame.Box(new Vector3(half, y, 0f), Quaternion.identity, new Vector3(0.35f, 0.35f, half * 2f + 0.5f), 0);
-        }
-        foreach (float sgn in new[] { -1f, 1f })
-        {
-            frame.Box(new Vector3(sgn * half, (3.5f + h) * 0.5f, 0f), Quaternion.Euler(sgn * 35f, 0f, 0f), new Vector3(0.25f, 6.8f, 0.25f), 0);
-            frame.Box(new Vector3(0f, (3.5f + h) * 0.5f, sgn * half), Quaternion.Euler(0f, 0f, sgn * 35f), new Vector3(0.25f, 6.8f, 0.25f), 0);
-        }
-        frame.Cyl(new Vector3(0f, h + 1.2f, 0f), Quaternion.Euler(0f, 0f, 90f), new Vector3(1.3f, 0.15f, 1.3f), 1);
-        frame.Box(new Vector3(0f, h + 0.5f, 0f), Quaternion.identity, new Vector3(0.3f, 1.4f, 0.3f), 1);
-        frame.Box(new Vector3(1.25f, (h + 1.2f + 4.2f) * 0.5f, 0f), Quaternion.identity, new Vector3(0.07f, h + 1.2f - 4.2f, 0.07f), 1);
-        GameObject headframe = frame.Build("Headframe", props, centre + Vector3.up * 0.15f, "ArenaHeadframe");
-        foreach (Vector3 c in postColliders)
-        {
-            var col = new GameObject("Post Collider", typeof(BoxCollider));
-            col.transform.SetParent(headframe.transform, false);
-            col.transform.localPosition = c;
-            col.GetComponent<BoxCollider>().size = new Vector3(0.5f, h, 0.5f);
-        }
-        GameObject crystal = Place(OreRockPrefab, props, centre + Vector3.up * 0.15f, 25f, 3.2f);
-        if (crystal != null)
-        {
-            crystal.name = "Arena Crystal";
-            foreach (var r in crystal.GetComponentsInChildren<Renderer>()) r.sharedMaterial = d.crystal;
-            if (TryBounds(crystal, out Bounds cb)) // solid, so nobody walks through it between the posts
-            {
-                var box = crystal.AddComponent<BoxCollider>();
-                box.center = crystal.transform.InverseTransformPoint(cb.center);
-                box.size = Vector3.Scale(cb.size, new Vector3(1f / crystal.transform.lossyScale.x, 1f / crystal.transform.lossyScale.y, 1f / crystal.transform.lossyScale.z)) * 0.8f;
-            }
-            GameObjectUtility.SetStaticEditorFlags(crystal, StaticEditorFlags.BatchingStatic);
-        }
-
-        // Lights: warm work light under the headframe top, cyan glow from the crystal.
-        AddPointLight(lights, "Headframe Light", centre + Vector3.up * (h - 0.6f), new Color(1f, 0.62f, 0.36f), 16f, 34f);
-        AddPointLight(lights, "Crystal Glow", centre + Vector3.up * 2.2f, new Color(0.35f, 0.85f, 1f), 7f, 14f);
-        d.lights += 2;
-
-        // Rock formations around the edge, leaving the gate side open.
-        Vector3 gateDir = gate != null ? (gate.End.position - centre) : Vector3.forward;
-        gateDir.y = 0f; gateDir.Normalize();
-        int pillars = 0;
-        for (int i = 0; i < 12; i++)
-        {
-            float a = (i + 0.5f) / 12f * Mathf.PI * 2f;
-            var dir = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a));
-            if (Vector3.Angle(dir, gateDir) < 32f) continue; // the way in stays open
-            Vector3 at = centre + Vector3.Scale(dir, new Vector3(arena.Size.x, 0f, arena.Size.z)) * 0.8f;
-            if (!Physics.Raycast(at + Vector3.up * 6f, Vector3.down, out RaycastHit hit, 14f) || !hit.collider.transform.IsChildOf(d.generated)) continue;
-            // A tall, narrow rock column (9-13 m), sunk a little into the floor. Kept solid: it's cover.
-            GameObject rock = Place(RockFolder + "PT_Generic_Rock_01.prefab", props, hit.point - Vector3.up * 0.8f, i * 53f, 9f + (i * 37 % 5));
-            if (rock == null) continue;
-            rock.name = "Arena Pillar";
-            rock.transform.localScale = Vector3.Scale(rock.transform.localScale, new Vector3(0.5f, 1f, 0.5f));
-            if (TryBounds(rock, out Bounds rb))
-            {
-                var box = rock.AddComponent<BoxCollider>();
-                box.center = rock.transform.InverseTransformPoint(rb.center);
-                box.size = Vector3.Scale(rb.size, new Vector3(1f / rock.transform.lossyScale.x, 1f / rock.transform.lossyScale.y, 1f / rock.transform.lossyScale.z)) * 0.85f;
-            }
-            GameObjectUtility.SetStaticEditorFlags(rock, StaticEditorFlags.BatchingStatic | StaticEditorFlags.OccludeeStatic);
-            pillars++;
-        }
-
-        // Gate: a timber frame where the gate tunnel opens into the arena.
-        if (gate != null)
-        {
-            Vector3 g = gate.End.position, inward = (gate.End.position - gate.transform.position); inward.y = 0f; inward.Normalize();
-            Vector3 gSide = Vector3.Cross(Vector3.up, inward).normalized;
-            if (Physics.Raycast(g + Vector3.up * 3f, Vector3.down, out RaycastHit gh, 10f)) g = gh.point;
-            float span = gate.Size.x - 2f, fh = 8f;
-            var gateFrame = new PropMesh(d.wood, d.metal);
-            Quaternion rot = Quaternion.LookRotation(inward);
-            var colliders = new List<Vector3>();
-            foreach (float sgn in new[] { -1f, 1f })
-            {
-                Vector3 b = gSide * span * sgn;
-                gateFrame.Box(b + Vector3.up * (fh * 0.5f - 0.3f), rot, new Vector3(0.7f, fh + 0.6f, 0.7f), 0);
-                gateFrame.Box(b + Vector3.up * (fh - 1.6f) - gSide * sgn * 1.1f, rot * Quaternion.Euler(0f, 0f, sgn * 45f), new Vector3(0.35f, 2.8f, 0.35f), 0);
-                colliders.Add(b + Vector3.up * (fh * 0.5f));
-            }
-            gateFrame.Box(Vector3.up * fh, rot, new Vector3(span * 2f + 1.6f, 0.8f, 0.8f), 0);
-            gateFrame.Box(Vector3.up * (fh - 0.45f), rot, new Vector3(span * 2f + 1.7f, 0.12f, 0.9f), 1);
-            GameObject gf = gateFrame.Build("GateFrame", props, g, "ArenaGateFrame");
-            foreach (Vector3 c in colliders)
-            {
-                var col = new GameObject("Post Collider", typeof(BoxCollider));
-                col.transform.SetParent(gf.transform, false);
-                col.transform.SetPositionAndRotation(g + c, rot);
-                col.GetComponent<BoxCollider>().size = new Vector3(0.7f, fh, 0.7f);
-            }
-        }
-        return pillars < 6 ? $"BossArena: only {pillars} pillars placed" : null;
     }
 
     /// <summary>Instantiates a prefab scaled to a height, standing on <paramref name="pos"/> (its colliders removed).</summary>

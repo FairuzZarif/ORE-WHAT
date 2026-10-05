@@ -68,7 +68,7 @@ public class NetworkSmokeTest : MonoBehaviour
 
         // Host hits rock A once too (the client finishes it): the hits must add up across players.
         RockHealth rock = RockA();
-        if (rock != null) { rock.TakeHit(1); Log($"host hit rock A, health now {rock.CurrentHealth}/{rock.MaxHealth}"); }
+        if (rock != null) { rock.TakeMiningHit(1, FindAnyObjectByType<PlayerEquipment>().Equipped); Log($"host hit rock A, health now {rock.CurrentHealth}/{rock.MaxHealth}"); }
 
         // Watch the client move: its avatar's position over time.
         NetworkPlayerAvatar remote = null;
@@ -131,12 +131,12 @@ public class NetworkSmokeTest : MonoBehaviour
         crouchMe.TryStand();
         lampMe.SetOn(false);
 
-        // Mine rock A until it breaks (each TakeHit = one swing's hit).
+        // Mine rock A until it breaks (each TakeMiningHit = one swing's hit).
         yield return new WaitForSeconds(1f); // let the host's hit land first
         RockHealth rock = RockA();
         Log($"rock A health seen by client before mining: {(rock != null ? rock.CurrentHealth.ToString() : "gone")}");
         int hits = 0;
-        while (rock != null && hits < 20) { rock.TakeHit(1); hits++; yield return new WaitForSeconds(0.4f); }
+        while (rock != null && hits < 20) { rock.TakeMiningHit(1, FindAnyObjectByType<PlayerEquipment>().Equipped); hits++; yield return new WaitForSeconds(0.4f); }
         Log($"rock A broken after {hits} client hits: {rock == null}");
         yield return WaitFor(() => Items() > 0, 10f, "ore drops");
         yield return new WaitForSeconds(1.5f); // let them settle
@@ -245,15 +245,26 @@ public class NetworkSmokeTest : MonoBehaviour
         for (int i = 1; i < points.Count; i++)
         {
             Vector3 corner = points[i].p;
+            Vector3? detour = null;
             float best = float.MaxValue; int noProgress = 0, guard = 0;
             bool done = false;
             while (!done)
             {
                 for (int k = 0; k < 2 && !done; k++) // 2 steps of up to 0.3 m a frame
                 {
-                    Vector3 pos = me.transform.position, flat = corner - pos; flat.y = 0f;
+                    Vector3 pos = me.transform.position, flat = (detour ?? corner) - pos; flat.y = 0f;
                     float dist = flat.magnitude;
-                    if (dist < 0.4f) { done = true; break; }
+                    if (dist < 0.4f)
+                    {
+                        if (detour.HasValue) { detour = null; best = float.MaxValue; noProgress = 0; continue; }
+                        done = true; break;
+                    }
+                    if (!detour.HasValue && OreDetour(me, flat.normalized, out Vector3 around))
+                    {
+                        detour = around; best = float.MaxValue; noProgress = 0;
+                        Log($"{title}: walking detour around live ore at {pos}");
+                        flat = around - pos; flat.y = 0f; dist = flat.magnitude;
+                    }
                     me.transform.rotation = Quaternion.LookRotation(flat.normalized);
                     cc.Move(flat.normalized * Mathf.Min(0.3f, dist) + Vector3.down * 0.25f);
                     Vector3 moved = me.transform.position - pos; moved.y = 0f;
@@ -273,6 +284,38 @@ public class NetworkSmokeTest : MonoBehaviour
             if (points[i].label.Length > 0) Log($"{title}: reached {points[i].label} at {me.transform.position}");
         }
         Log($"{title}: walked {walked:F0} m, stuck {stuck}, ended at {me.transform.position}");
+    }
+
+    // Route files describe the static map. Random live ore is intentionally collidable:
+    // steer around it as a player would, without teleporting or weakening cave collision checks.
+    private static bool OreDetour(PlayerMovement player, Vector3 forward, out Vector3 destination)
+    {
+        Vector3 at = player.transform.position;
+        destination = at;
+        var obstacle = Physics.SphereCastAll(at + Vector3.up * .9f, .42f, forward, 1.6f,
+                ~0, QueryTriggerInteraction.Ignore)
+            .Where(h => h.collider.GetComponentInParent<RockHealth>() != null).OrderBy(h => h.distance).FirstOrDefault();
+        if (obstacle.collider == null) return false;
+        Vector3 side = Vector3.Cross(Vector3.up, forward);
+        foreach (float offset in new[] { 1.4f, -1.4f, 2f, -2f })
+        {
+            Vector3 point = at + side * offset + forward * .8f;
+            var ground = Physics.RaycastAll(point + Vector3.up * 2f, Vector3.down, 4f, ~0, QueryTriggerInteraction.Ignore)
+                .Where(h => h.collider.GetComponentInParent<RockHealth>() == null
+                    && h.collider.GetComponentInParent<PlayerMovement>() == null
+                    && h.collider.GetComponentInParent<NetworkPlayerAvatar>() == null
+                    && h.collider.GetComponentInParent<DroppedItem>() == null).OrderBy(h => h.distance).FirstOrDefault();
+            if (ground.collider == null || ground.normal.y < .72f || Mathf.Abs(ground.point.y - at.y) > .65f) continue;
+            point.y = ground.point.y + .1f;
+            if (Physics.OverlapCapsule(point + Vector3.up * .45f, point + Vector3.up * 1.4f, .38f,
+                    ~0, QueryTriggerInteraction.Ignore).Any(c => !c.transform.IsChildOf(player.transform))) continue;
+            // Validate the lateral route too, rather than merely checking its endpoint.
+            Vector3 move = point - at; move.y = 0;
+            if (Physics.SphereCastAll(at + Vector3.up * .9f, .42f, move.normalized, move.magnitude,
+                    ~0, QueryTriggerInteraction.Ignore).Any(h => !h.collider.transform.IsChildOf(player.transform))) continue;
+            destination = point; return true;
+        }
+        return false;
     }
 
     /// <summary>Follows the other player's avatar until it has been in Mine 1's arena and come back to the hub.</summary>

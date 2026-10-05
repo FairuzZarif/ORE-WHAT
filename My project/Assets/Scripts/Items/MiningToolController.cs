@@ -1,13 +1,13 @@
 using UnityEngine;
 
 /// <summary>
-/// The attack controller of a mining tool (pickaxe, hammer...). Put it on the root of the
+/// Shared melee attack controller (pickaxe, hammer...). Put it on the root of the
 /// tool's first-person view, next to (or above) the tool's swing animation.
 ///
 /// It holds what makes this tool different: its own swing (a PickaxeSwing configured with this
 /// tool's poses and timing), how much damage one hit does, and how often it can swing.
 /// MiningController (on the Player) reads these from whichever mining tool is equipped and does
-/// the shared part: the click, the centre-screen ray at the strike, and the rock damage.
+/// the shared part: the click and centre-screen ray at the strike. Only ItemData.CanMine grants rock damage.
 /// </summary>
 public class MiningToolController : HeldItemController
 {

@@ -30,7 +30,7 @@ using UnityEngine.InputSystem;
 /// Each shot casts one ray from the camera, along the crosshair plus the recoil. It never hits the player or the
 /// first-person view. What it hits:
 ///   - an IDamageable (future enemies) takes Damage
-///   - a rock (RockHealth) takes Rock Damage through its normal TakeHit
+///   - resource nodes block shots and receive impact feedback, but never mining damage
 ///   - a Rigidbody gets a small push
 ///   - anything else just registers the hit (the ShotHit event), no errors
 ///
@@ -69,8 +69,6 @@ public class WeaponController : HeldItemController
     [SerializeField, Min(1f)] private float range = 100f;
     [Tooltip("Damage per shot to anything with an IDamageable component (future enemies).")]
     [SerializeField, Min(0f)] private float damage = 20f;
-    [Tooltip("Damage per shot to rocks (RockHealth; rocks have 5 health). 0 = shots don't break rocks.")]
-    [SerializeField, Min(0)] private int rockDamage = 1;
     [Tooltip("Push given to physics objects that are hit (impulse).")]
     [SerializeField, Min(0f)] private float hitForce = 2f;
     [Tooltip("What shots can hit. The Player and ViewModel layers should be left out.")]
@@ -508,11 +506,6 @@ public class WeaponController : HeldItemController
     {
         var target = hit.collider.GetComponentInParent<IDamageable>();
         if (target != null) target.TakeDamage(damage, hit);
-        else if (rockDamage > 0)
-        {
-            var rock = hit.collider.GetComponentInParent<RockHealth>();
-            if (rock != null) rock.TakeHit(rockDamage);
-        }
         if (hit.rigidbody != null && !hit.rigidbody.isKinematic)
             hit.rigidbody.AddForceAtPosition(direction * hitForce, hit.point, ForceMode.Impulse);
 

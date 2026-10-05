@@ -16,8 +16,8 @@ public static class MapWalkabilityCheck
     [MenuItem("Ore What/Island Map/Validate Walkability")]
     public static void Menu() => Debug.Log("[Ore What] " + Run());
 
-    // Rooms whose centre is filled by something solid get a target point beside it.
-    private static readonly Dictionary<string, Vector3> TargetOffsets = new Dictionary<string, Vector3> { { "BossArena", new Vector3(0f, 0f, 18f) }, { "OldShaft", new Vector3(-3f, 0f, -6f) } };
+    // The boss arena centre is deliberately clear; only the shaft needs an offset from its wreckage.
+    private static readonly Dictionary<string, Vector3> TargetOffsets = new Dictionary<string, Vector3> { { "OldShaft", new Vector3(-3f, 0f, -6f) } };
 
     // One deep space per mine, for the "mines don't connect" test.
     private static readonly string[] MineArenas = { null, "BossArena", "DeepHollow", "Crystal_Geode", "Rift_Final" };
@@ -125,17 +125,20 @@ public static class MapWalkabilityCheck
         ("Mine 1 main route", new[] { "Cavern_01", "OldMine_Adit", "OldMine_Office", "OldMine_Drift_1", "OldMine_Stope", "OldMine_Drift_2", "OldMine_Ramp", "MiningArea_02",
             "DeepTunnel_A", "DeepTunnel_B", "DeepTunnel_C", "DeepCavern", "OldMine_LowerDrift_1", "OldMine_LowerDrift_2", "OldShaft_Gallery", "OldShaft_Incline_1",
             "OldShaft_Landing_1", "OldShaft_Incline_2", "OldShaft_Landing_2", "OldShaft_Incline_3", "OldShaft", "OldShaft_BottomDrift", "OldMine_WorkArea",
-            "OldMine_Approach_1", "OldMine_CollapsedHall", "OldMine_Approach_2", "OldMine_ApproachTurn", "OldMine_ArenaGate", "BossArena" }),
-        ("Mine 1 back (old incline, No. 3 workings, collapsed workings)", new[] { "BossArena", "OldMine_ArenaGate", "OldMine_ApproachTurn", "OldMine_Approach_2",
+            "OldMine_Approach_1", "OldMine_CollapsedHall", "OldMine_Approach_2", "OldMine_ApproachTurn", "OldMine_ArenaGate", "OldMine_BossThreshold", "BossArena" }),
+        ("Mine 1 back (old incline, No. 3 workings, collapsed workings)", new[] { "BossArena", "OldMine_BossThreshold", "OldMine_ArenaGate", "OldMine_ApproachTurn", "OldMine_Approach_2",
             "OldMine_CollapsedHall", "OldMine_Approach_1", "OldMine_WorkArea", "OldMine_OldIncline", "OldShaft_Landing_1", "OldShaft_Incline_1", "OldShaft_Gallery",
             "OldMine_LowerDrift_2", "OldMine_LowerDrift_1", "DeepCavern", "DeepTunnel_C", "DeepTunnel_B", "DeepTunnel_A", "MiningArea_02", "OldMine_AbandonedLink",
             "OldMine_Abandoned", "OldMine_SideDrift", "OldMine_Stope", "Collapsed_Drift", "OreArea_01", "Cavern_01" }),
         ("Mine 1 shortest (old incline shortcut)", new[] { "Cavern_01", "OldMine_Adit", "OldMine_Office", "OldMine_Drift_1", "OldMine_Stope", "OldMine_Drift_2",
             "OldMine_Ramp", "MiningArea_02", "DeepTunnel_A", "DeepTunnel_B", "DeepTunnel_C", "DeepCavern", "OldMine_LowerDrift_1", "OldMine_LowerDrift_2",
             "OldShaft_Gallery", "OldShaft_Incline_1", "OldShaft_Landing_1", "OldMine_OldIncline", "OldMine_WorkArea", "OldMine_Approach_1",
-            "OldMine_CollapsedHall", "OldMine_Approach_2", "OldMine_ApproachTurn", "OldMine_ArenaGate", "BossArena" }),
+            "OldMine_CollapsedHall", "OldMine_Approach_2", "OldMine_ApproachTurn", "OldMine_ArenaGate", "OldMine_BossThreshold", "BossArena" }),
         ("Mine 1 store room", new[] { "OldMine_Office", "OldMine_StoreDoor", "OldMine_Storeroom", "OldMine_StoreDoor", "OldMine_Office" }),
         ("Mine 1 ore pocket", new[] { "OldMine_WorkArea", "OldMine_PocketDrift", "OldMine_Pocket", "OldMine_PocketDrift", "OldMine_WorkArea" }),
+        ("Mine 1 arena perimeter and open floor", new[] { "OldMine_BossThreshold", "BossArena@20,0", "BossArena@16,16", "BossArena@0,22",
+            "BossArena@-16,16", "BossArena@-22,0", "BossArena@-16,-16", "BossArena@0,-22", "BossArena@16,-16", "BossArena@20,0",
+            "BossArena", "BossArena@-16,0", "BossArena@16,0", "BossArena@0,16", "BossArena@0,-16", "OldMine_BossThreshold" }),
         ("Mine 2 main route", new[] { "Cavern_01", "SideTunnel", "SideCave", "RailTunnel_Link", "RailTunnel_2", "RailJunction", "RailTunnel_3", "CombatArea", "DeepMine_Incline_1", "DeepMine_Shaft", "DeepMine_Incline_2", "DeepMine_Landing", "DeepMine_Incline_3", "DeepHollow" }),
         ("Mine 2 back (return incline)", new[] { "DeepHollow", "DeepMine_Incline_3", "DeepMine_Landing", "DeepMine_Incline_2", "DeepMine_Shaft", "DeepMine_Return", "RailJunction", "RailTunnel_2", "RailTunnel_Link", "SideCave", "SideTunnel", "Cavern_01" }),
         ("Mine 3 main route (upper)", new[] { "Cavern_01", "Tunnel_02", "Cavern_02", "CrystalTunnel_W", "CrystalCavern", "Crystal_Descent_1", "Crystal_Descent_2", "Crystal_Descent_3", "Crystal_Descent_4", "Crystal_Descent_5", "Crystal_Geode" }),
@@ -180,6 +183,13 @@ public static class MapWalkabilityCheck
                 Vector3 Point(string n)
                 {
                     if (n[0] == '@') { string[] a = n.Substring(1).Split(','); return new Vector3(float.Parse(a[0]), float.Parse(a[1]), float.Parse(a[2])); }
+                    if (n.Contains("@"))
+                    {
+                        string[] parts = n.Split('@'), offset = parts[1].Split(',');
+                        Transform room = cave.transform.Find(parts[0]);
+                        return room.position + new Vector3(float.Parse(offset[0], System.Globalization.CultureInfo.InvariantCulture), 0f,
+                            float.Parse(offset[1], System.Globalization.CultureInfo.InvariantCulture));
+                    }
                     Transform t = cave.transform.Find(n);
                     return t == null ? Vector3.zero : Target(t.GetComponent<CaveSpace>());
                 }
@@ -187,7 +197,7 @@ public static class MapWalkabilityCheck
                 cc.enabled = false; walker.transform.position = first.position + Vector3.up * 0.1f; cc.enabled = true;
                 for (int i = 1; i < names.Length; i++)
                 {
-                    if (cave.transform.Find(names[i]) == null) { notes.Add(names[i] + " missing"); continue; }
+                    if (names[i][0] != '@' && cave.transform.Find(names[i].Split('@')[0]) == null) { notes.Add(names[i] + " missing"); continue; }
                     if (!NavMesh.SamplePosition(Point(names[i]) + Vector3.up, out NavMeshHit to, 8f, NavMesh.AllAreas)) { notes.Add("no floor in " + names[i]); continue; }
                     NavMesh.SamplePosition(walker.transform.position, out NavMeshHit from, 4f, NavMesh.AllAreas);
                     var path = new NavMeshPath();
@@ -231,7 +241,8 @@ public static class MapWalkabilityCheck
 
     private static NavMeshDataInstance Build(List<NavMeshBuildSource> sources, Bounds bounds, float height, float radius)
     {
-        NavMeshBuildSettings settings = NavMesh.CreateSettings();
+        // Copy the built-in agent settings; CreateSettings adds persistent project agents on every test run.
+        NavMeshBuildSettings settings = NavMesh.GetSettingsByID(0);
         settings.agentRadius = radius; settings.agentHeight = height; settings.agentSlope = 45f; settings.agentClimb = 0.3f;
         settings.voxelSize = 0.15f; settings.overrideVoxelSize = true;
         return NavMesh.AddNavMeshData(NavMeshBuilder.BuildNavMeshData(settings, sources, bounds, Vector3.zero, Quaternion.identity));
@@ -239,7 +250,7 @@ public static class MapWalkabilityCheck
 
     private static NavMeshDataInstance Build(List<NavMeshBuildSource> sources, Bounds bounds, float height)
     {
-        NavMeshBuildSettings settings = NavMesh.CreateSettings();
+        NavMeshBuildSettings settings = NavMesh.GetSettingsByID(0);
         settings.agentRadius = 0.4f; settings.agentHeight = height; settings.agentSlope = 45f; settings.agentClimb = 0.3f;
         settings.voxelSize = 0.15f; settings.overrideVoxelSize = true;
         return NavMesh.AddNavMeshData(NavMeshBuilder.BuildNavMeshData(settings, sources, bounds, Vector3.zero, Quaternion.identity));
