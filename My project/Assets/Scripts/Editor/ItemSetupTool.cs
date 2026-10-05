@@ -41,13 +41,13 @@ public static class ItemSetupTool
 
     private static readonly Def[] Items =
     {
-        new Def { file = "CopperOre", id = "ore_copper",  name = "Copper Ore", material = "Ore_Copper",  value = 10, mass = 0.35f,
+        new Def { file = "CopperOre", id = "ore_copper",  name = "Copper Ore", material = "Ore_Copper",  value = 3, mass = 0.35f,
                   color = new Color(0.85f, 0.50f, 0.20f), metallic = 0.8f, smoothness = 0.6f, shape = Shape.Chunk },
-        new Def { file = "IronOre",   id = "ore_iron",    name = "Iron Ore",   material = "Ore_Iron",    value = 20, mass = 0.5f,
+        new Def { file = "IronOre",   id = "ore_iron",    name = "Iron Ore",   material = "Ore_Iron",    value = 40, mass = 0.5f,
                   color = new Color(0.58f, 0.52f, 0.48f), metallic = 0.7f, smoothness = 0.45f, shape = Shape.Chunk },
-        new Def { file = "GoldOre",   id = "ore_gold",    name = "Gold Ore",   material = "Ore_Gold",    value = 50, mass = 0.6f,
+        new Def { file = "GoldOre",   id = "ore_gold",    name = "Gold Ore",   material = "Ore_Gold",    value = 300, mass = 0.6f,
                   color = new Color(1.00f, 0.78f, 0.22f), metallic = 0.9f, smoothness = 0.75f, shape = Shape.Chunk },
-        new Def { file = "Crystal",   id = "crystal",     name = "Crystal",    material = "Ore_Crystal", value = 75, mass = 0.25f,
+        new Def { file = "Crystal",   id = "crystal",     name = "Crystal",    material = "Ore_Crystal", value = 4000, mass = 0.25f,
                   color = new Color(0.40f, 0.85f, 1.00f), metallic = 0.1f, smoothness = 0.9f, shape = Shape.Crystal,
                   emission = new Color(0.10f, 0.35f, 0.45f) },
     };
@@ -189,7 +189,7 @@ public static class ItemSetupTool
         if (mining != null)
         {
             var mso = new SerializedObject(mining);
-            damage = mso.FindProperty("damagePerHit").intValue;
+            damage = mining.DefaultMiningDamage;
             cooldown = mso.FindProperty("miningCooldown").floatValue;
         }
         EnsureMiningTool(viewModel.gameObject, swing, damage, cooldown);

@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b485a37643b4a7b44bfcb2f51efaaa67, type: 3}
+  m_Name: OreNodeCatalog
+  m_EditorClassIdentifier: Assembly-CSharp::OreNodeCatalog
+  entries:
+  - ore: {fileID: 11400000, guid: 2bf7ad26ac6a26143b7520b7577db7e2, type: 2}
+    visual: {fileID: 6597421256415713427, guid: 242afc606d155fb47b62cb0a3937199a, type: 3}
+  - ore: {fileID: 11400000, guid: 78c483abdf052af4fafa1bae9566c602, type: 2}
+    visual: {fileID: 6706704790063281, guid: b180efb4ed4b83f419fec7467242410a, type: 3}
+  - ore: {fileID: 11400000, guid: 12db477c0fdcc6341855870d05a7b8dd, type: 2}
+    visual: {fileID: 7503589098777363812, guid: 4f23eab77d8851244933b5bfcf1dd6e1, type: 3}
+  - ore: {fileID: 11400000, guid: 4f1cde4e01cbc4041ac10ed3b92dcaf6, type: 2}
+    visual: {fileID: 8166638405263944540, guid: 7879961633b9f7c408e6019f72873736, type: 3}

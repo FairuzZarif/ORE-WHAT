@@ -4,13 +4,13 @@ using UnityEngine.InputSystem;
 /// <summary>
 /// Put this on the Player. Left-click swings the held mining tool and fires a ray from the
 /// centre of the camera. If the first thing the ray hits within range is a rock (RockHealth),
-/// the rock takes damage. Works with or without a swing visual:
+/// a held item with explicit CanMine capability damages the rock. With or without a swing visual:
 /// with one, the hit happens when the swing's strike lands (ImpactReached);
 /// without one, it happens immediately on click.
 ///
 /// With a PlayerEquipment, the equipped tool's MiningToolController decides which swing plays,
-/// the damage per hit and the cooldown (pickaxe, hammer...). Without one, the Pickaxe Swing,
-/// Mining Cooldown and Damage Per Hit fields below are used.
+/// the damage per hit and the cooldown (pickaxe, hammer...). Hammer still swings and deals combat damage.
+/// Mining always requires an equipped item with CanMine; an absent equipment component cannot grant mining.
 /// </summary>
 // Runs before PlayerLook, so the click that re-locks the cursor after Escape
 // is seen as "cursor unlocked" here and doesn't also count as a swing.
@@ -57,6 +57,8 @@ public class MiningController : MonoBehaviour
 
     /// <summary>The equipped mining tool, if the held item has one.</summary>
     private MiningToolController ActiveTool => equipment != null ? equipment.ActiveController as MiningToolController : null;
+    /// <summary>Legacy scene tuning used when the editor configures the pickaxe's explicit tool controller.</summary>
+    public int DefaultMiningDamage => damagePerHit;
 
     /// <summary>
     /// Raised whenever a mining hit strikes a surface within range (rock or not), for effects
@@ -111,8 +113,8 @@ public class MiningController : MonoBehaviour
     {
         if (playerCamera == null) return;
 
-        // No tool in hand (e.g. the pickaxe was thrown away): no mining.
-        if (equipment != null && !equipment.CanMine)
+        // Melee tools may swing; the separate CanMine capability decides whether a node takes damage.
+        if (equipment != null && (equipment.Hidden || equipment.IsCarrying || ActiveTool == null))
         {
             bufferedClickUntil = -1f;
             return;
@@ -199,10 +201,10 @@ public class MiningController : MonoBehaviour
             Debug.DrawLine(ray.origin, end, rock != null ? Color.green : Color.red, 1f);
         }
 
-        if (rock != null)
+        if (rock != null && equipment != null && equipment.CanMine && ActiveTool != null)
         {
             MiningToolController tool = ActiveTool;
-            rock.TakeHit(tool != null ? tool.DamagePerHit : damagePerHit);
+            rock.TakeMiningHit(tool.DamagePerHit, equipment.Equipped);
         }
         else if (hitSomething && !hit.collider.transform.IsChildOf(transform))
         {
@@ -213,7 +215,7 @@ public class MiningController : MonoBehaviour
         }
 
         if (hitSomething)
-            SurfaceHit?.Invoke(hit, rock);
+            SurfaceHit?.Invoke(hit, equipment != null && equipment.CanMine ? rock : null);
 
         return hitSomething;
     }

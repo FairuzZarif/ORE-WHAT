@@ -19,7 +19,7 @@ using Debug = UnityEngine.Debug;
 /// Props, Lighting, MiningRocks, Zones, the terrain holes under the cave, and the path.
 /// The first build backs up the terrain asset to Assets/Backups.
 /// </summary>
-public static class IslandMapBuilder
+public static partial class IslandMapBuilder
 {
     private const string MeshFolder = "Assets/Models/Island";
     private const string MaterialFolder = "Assets/Materials/Island";
@@ -56,10 +56,13 @@ public static class IslandMapBuilder
         var cave = island.Find("Cave") != null ? island.Find("Cave").GetComponent<CaveLayout>() : null;
         if (mountain == null) mountain = CreateMountain(island, terrain);
         if (cave == null) cave = CreateCave(island, terrain);
+        log.AppendLine(AddMineNetwork(cave)); // the mine network around the original route (only spaces that are missing)
+        InitializeCaveGeology(cave);
         cave.Prepare();
 
         BackupTerrain(terrain, log);
-        Material[] rockMaterials = { RockMaterial("Mountain_Rock", 0), RockMaterial("Cave_Rock", 1), RockMaterial("Cave_Rock_Deep", 2) };
+        Material[] rockMaterials = { RockMaterial("Mountain_Rock", 0), RockMaterial("Cave_Rock", 1), RockMaterial("Cave_Rock_Deep", 2),
+                                     RockMaterial("Cave_Rock_DeepMine", 3), RockMaterial("Cave_Rock_Crystal", 4), RockMaterial("Cave_Rock_Rift", 5) }; // 3-5: one per mine (Mine 2-4)
         Transform generated = Child(mountain.transform, "Generated");
         Clear(generated);
         log.AppendLine(GenerateMesh(mountain, cave, terrain, generated, rockMaterials));
@@ -67,6 +70,8 @@ public static class IslandMapBuilder
 
         log.AppendLine(EditTerrain(terrain, mountain, cave));
         log.AppendLine(Dress(island, mountain, cave, terrain, generated));
+        log.AppendLine(OreSpawnSetup.Rebuild(cave));
+        log.AppendLine(DressCaveGeology(cave));
 
         if (RenderSettings.fogDensity > MaxFogDensity)
         {
@@ -181,7 +186,7 @@ public static class IslandMapBuilder
     {
         foreach (CaveSpace s in cave.GetComponentsInChildren<CaveSpace>())
         {
-            if (!FloorShapes.TryGetValue(s.name, out var f)) continue;
+            if (!FloorShapes.TryGetValue(s.name, out var f) && !MineFloorShapes.TryGetValue(s.name, out f)) continue;
             Undo.RecordObject(s, "Floor Shapes");
             s.SetFloorShape(f.roll, f.steps, f.share, f.plateau, f.offset, f.radius, f.ramp);
             EditorUtility.SetDirty(s);
@@ -264,9 +269,12 @@ public static class IslandMapBuilder
         }
         else
         {
-            bool deep = kind == 2;
+            bool deep = kind >= 2;
             m.SetFloat("_Gradient", 0f); // one colour: Ground Color
-            m.SetColor("_GroundColor", deep ? new Color(0.3f, 0.3f, 0.36f) : new Color(0.34f, 0.29f, 0.25f));
+            // 1 warm rock (hub, Old Mine), 2 deep blue-grey, 3 Deep Mine steel grey, 4 Crystal blue-violet, 5 Rift near-black.
+            Color[] colours = { Color.white, new Color(0.34f, 0.29f, 0.25f), new Color(0.3f, 0.3f, 0.36f), new Color(0.27f, 0.28f, 0.3f),
+                                new Color(0.24f, 0.27f, 0.4f), new Color(0.13f, 0.11f, 0.12f) };
+            m.SetColor("_GroundColor", colours[Mathf.Clamp(kind, 1, 5)]);
             m.SetFloat("_TOPPROJECTIONONOFF", 0f); m.DisableKeyword("_TOPPROJECTIONONOFF_ON");
             m.SetFloat("_OREEMISSIONONOFF", 0f); // no glowing ore painted on the walls
             // Kept modest: brighter values blow out to flat white patches with the bloom.
@@ -340,7 +348,7 @@ public static class IslandMapBuilder
         public readonly List<Vector3> v = new List<Vector3>();
         public readonly List<Vector3> n = new List<Vector3>();
         public readonly List<Color32> c = new List<Color32>();
-        public readonly List<int>[] i = { new List<int>(), new List<int>(), new List<int>() };
+        public readonly List<int>[] i = { new List<int>(), new List<int>(), new List<int>(), new List<int>(), new List<int>(), new List<int>() };
     }
 
     private static string GenerateMesh(MountainShape mountain, CaveLayout cave, Terrain terrain, Transform parent, Material[] materials)
@@ -422,7 +430,7 @@ public static class IslandMapBuilder
             if (!inCave && Mathf.Max(a.y, Mathf.Max(b.y, c.y)) < terrain.SampleHeight(centre) + terrainY - 1f) { culled++; return; } // under the ground
             // The open-air ravine floor uses the cave rock too (the mountain material would grow grass on it).
             bool ravineFloor = !inCave && normal.y > 0.5f && cave.Distance(centre) < 2.5f;
-            int sub = inCave ? (depth >= 0.55f ? 2 : 1) : ravineFloor ? 1 : 0;
+            int sub = inCave ? CaveSubmesh(nearest, depth) : ravineFloor ? 1 : 0;
             var key = new Vector2Int(Mathf.FloorToInt((centre.x - min.x) / ChunkSize), Mathf.FloorToInt((centre.z - min.z) / ChunkSize));
             if (!chunks.TryGetValue(key, out Chunk chunk)) chunks[key] = chunk = new Chunk();
             int start = chunk.v.Count;
@@ -469,8 +477,8 @@ public static class IslandMapBuilder
             mesh.SetVertices(ch.v);
             mesh.SetNormals(ch.n);
             mesh.SetColors(ch.c);
-            mesh.subMeshCount = 3;
-            for (int s = 0; s < 3; s++) mesh.SetTriangles(ch.i[s], s, false);
+            mesh.subMeshCount = ch.i.Length;
+            for (int s = 0; s < ch.i.Length; s++) mesh.SetTriangles(ch.i[s], s, false);
             mesh.RecalculateBounds();
             mesh = SaveMesh(mesh, $"{MeshFolder}/{name}.asset");
             vertexTotal += ch.v.Count;
@@ -718,14 +726,10 @@ public static class IslandMapBuilder
 
         public void Rock(Transform parent, Vector3 floor, ItemData ore, System.Random rnd)
         {
-            var rock = (GameObject)PrefabUtility.InstantiatePrefab(rockPrefab, parent);
-            rock.transform.SetPositionAndRotation(floor - Vector3.up * 0.15f, Quaternion.Euler(0f, (float)rnd.NextDouble() * 360f, 0f));
-            rock.transform.localScale = Vector3.one * Mathf.Lerp(0.9f, 1.25f, (float)rnd.NextDouble());
-            rock.name = "Rock (" + ore.name + ")";
-            var so = new SerializedObject(rock.GetComponent<RockHealth>());
-            so.FindProperty("oreItem").objectReferenceValue = ore;
-            so.ApplyModifiedPropertiesWithoutUndo();
-            rocks++;
+            // Preserve the dressing random stream and reserved spacing from the former fixed nodes.
+            // Actual ore is now generated exclusively from validated sockets after all props are built.
+            rnd.NextDouble();
+            rnd.NextDouble();
         }
     }
 
@@ -741,7 +745,7 @@ public static class IslandMapBuilder
             metal = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Prototype/Pickaxe_Head.mat"),
             glow = SimpleMaterial("LanternGlow", new Color(1f, 0.85f, 0.55f), new Color(4f, 2.4f, 0.9f)),
             crystal = CrystalMaterial(),
-            rockPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Rock.prefab"),
+            rockPrefab = KayKitMiningSetup.SharedRockPrefab(),
             oreRockPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(OreRockPrefab),
         };
         d.lampPrefab = LampPrefab(d.wood, d.metal, d.glow);
@@ -832,8 +836,8 @@ public static class IslandMapBuilder
         GameObject crateGo = crates.Build("Crates", entranceProps, crateBase, "Crates");
         crateGo.AddComponent<BoxCollider>().center = new Vector3(0.55f, 0.6f, 0.15f);
         crateGo.GetComponent<BoxCollider>().size = new Vector3(2.3f, 1.2f, 1.4f);
-        Sign(d, entranceProps, new Vector3(Plaza.x + 12f, 0f, Plaza.y - 2f), "ORE WHAT? MINING CO.\nMINE No. 1", terrain);
-        Sign(d, Child(props, "Path"), new Vector3(PathPoints[0].x + 5f, 0f, PathPoints[0].y + 8f), "THE MINE\nstraight ahead", terrain);
+        Sign(d, entranceProps, new Vector3(Plaza.x + 12f, 0f, Plaza.y - 2f), "ORE WHAT? MINING CO.\nCENTRAL MINING HUB", terrain);
+        Sign(d, Child(props, "Path"), new Vector3(PathPoints[0].x + 5f, 0f, PathPoints[0].y + 8f), "MINING HUB\nstraight ahead", terrain);
 
         // Lamps: two at the mouth (lit), unlit lanterns along the path.
         foreach (float sgn in new[] { -1f, 1f })
@@ -874,7 +878,7 @@ public static class IslandMapBuilder
         {
             { "MainTunnel", 2 }, { "Cavern_01", 4 }, { "OreArea_01", 1 }, { "SideTunnel", 1 }, { "SideCave", 2 }, { "Tunnel_02", 2 },
             { "Cavern_02", 5 }, { "MiningArea_02", 2 }, { "CombatTunnel", 1 }, { "CombatArea", 3 }, { "DeepTunnel_A", 1 },
-            { "DeepTunnel_B", 1 }, { "DeepTunnel_C", 1 }, { "DeepCavern", 5 }, { "BossGate", 1 }, { "BossArena", 6 },
+            { "DeepTunnel_B", 1 }, { "DeepTunnel_C", 1 }, { "DeepCavern", 5 }, { "BossGate", 1 },
         };
         ItemData copper = Item("CopperOre"), iron = Item("IronOre"), gold = Item("GoldOre"), crystalOre = Item("Crystal");
         var rockPlan = new Dictionary<string, ItemData[]>
@@ -886,9 +890,11 @@ public static class IslandMapBuilder
             { "MiningArea_02", new[] { iron, iron, iron, gold } },
             { "CombatArea", new[] { gold } },
             { "DeepCavern", new[] { gold, gold, crystalOre, crystalOre } },
-            { "BossArena", new[] { crystalOre, crystalOre } },
         };
-        var crystalPlan = new Dictionary<string, int> { { "MiningArea_02", 1 }, { "CombatArea", 1 }, { "DeepCavern", 2 }, { "BossArena", 3 } };
+        var crystalPlan = new Dictionary<string, int> { { "MiningArea_02", 1 }, { "CombatArea", 1 }, { "DeepCavern", 2 } };
+        // The mine network's spaces (IslandMapBuilder.MineDressing.cs).
+        foreach (var kv in MineLampPlan) lampPlan[kv.Key] = kv.Value;
+        foreach (var kv in MineRocks(copper, iron, gold, crystalOre)) rockPlan[kv.Key] = kv.Value;
         Transform caveLights = Child(lighting, "Cave"), caveProps = Child(props, "Cave");
         var missed = new List<string>();
         int seed = 1;
@@ -897,7 +903,7 @@ public static class IslandMapBuilder
             if (s.SpaceKind == CaveSpace.Kind.OpenCut) continue;
             var rnd = new System.Random(1000 + seed++ * 7919);
             float depth = s.DepthAt(0.5f);
-            Color lampColor = s.name == "BossArena" ? new Color(1f, 0.38f, 0.22f) : Color.Lerp(new Color(1f, 0.76f, 0.46f), new Color(1f, 0.55f, 0.28f), depth);
+            Color lampColor = MineLampColor(s.name, s.name == "BossArena" ? new Color(1f, 0.38f, 0.22f) : Color.Lerp(new Color(1f, 0.76f, 0.46f), new Color(1f, 0.55f, 0.28f), depth));
             float range = s.SpaceKind == CaveSpace.Kind.Room ? Mathf.Clamp(Mathf.Max(s.Size.x, s.Size.z) * 0.9f, 16f, 28f) : 18f;
             Vector3 centre = s.SpaceKind == CaveSpace.Kind.Room ? s.transform.position : (s.transform.position + s.End.position) * 0.5f;
 
@@ -905,7 +911,7 @@ public static class IslandMapBuilder
             {
                 Transform group = Child(caveLights, s.name);
                 for (int i = 0; i < lampCount; i++)
-                    if (d.Spot(s, rnd, 0.62f, 0.85f, out Vector3 floor)) d.Lamp(group, floor, centre, lampColor, 9f, range, true);
+                    if (d.Spot(s, rnd, 0.62f, 0.85f, out Vector3 floor)) d.Lamp(group, floor, centre, lampColor, IsMineSpace(s.name) ? MineLampIntensity(depth) : 9f, range, true);
                     else missed.Add(s.name + " lamp");
             }
             if (rockPlan.TryGetValue(s.name, out ItemData[] ores))
@@ -943,9 +949,9 @@ public static class IslandMapBuilder
             string zoneName = null;
             MapZone.ZoneKind kind = MapZone.ZoneKind.Ore;
             int tier = 1;
-            if (rockPlan.ContainsKey(s.name) && s.name != "Cavern_02") { zoneName = "OreZone_" + s.name; tier = depth < 0.2f ? 1 : depth < 0.5f ? 2 : depth < 0.9f ? 3 : 4; }
+            if (rockPlan.ContainsKey(s.name) && s.name != "Cavern_02" && OreSpawnSetup.AllowedSpace(s.name)) { zoneName = "OreZone_" + s.name; tier = depth < 0.2f ? 1 : depth < 0.5f ? 2 : depth < 0.9f ? 3 : 4; }
             if (s.name == "CombatArea" || s.name == "DeepCavern" || s.name == "Cavern_02") { zoneName = "EnemyZone_" + s.name; kind = MapZone.ZoneKind.Enemy; tier = depth < 0.5f ? 1 : 2; }
-            if (s.name == "BossArena") { zoneName = "BossZone_BossArena"; kind = MapZone.ZoneKind.Boss; tier = 4; }
+            if (s.name == "BossArena") { zoneName = "BossZone_BossArena"; kind = MapZone.ZoneKind.Boss; tier = 1; }
             if (zoneName != null)
             {
                 var z = new GameObject(zoneName).AddComponent<MapZone>();
@@ -954,8 +960,7 @@ public static class IslandMapBuilder
                 z.Set(kind, tier, s.SpaceKind == CaveSpace.Kind.Room ? Mathf.Max(s.Size.x, s.Size.z) : s.Size.x * 2f, $"Generated for {s.name} (depth {depth:F2}).");
             }
         }
-        string arena = DressBossArena(d, Space("BossArena"), Space("BossGate"), Child(props, "BossArena"), Child(lighting, "BossArena"));
-        if (arena != null) missed.Add(arena);
+        missed.AddRange(DressMineNetwork(d, spaces, props, lighting, zones));
 
         var start = new GameObject("PlayerStart").AddComponent<MapZone>();
         start.transform.SetParent(zones, false);
@@ -982,7 +987,7 @@ public static class IslandMapBuilder
     private const float RailSideOffset = 6f; // rails / cart this far right of the route's centre line
 
     /// <summary>A site floodlight: a wooden pole with a lamp head and a Spot Light aimed at a point.</summary>
-    private static void Floodlight(Dresser d, Transform propParent, Transform lightParent, Vector3 foot, Vector3 aimAt, string tag)
+    private static void Floodlight(Dresser d, Transform propParent, Transform lightParent, Vector3 foot, Vector3 aimAt, string tag, string assetName = "Floodlight")
     {
         Vector3 head = foot + Vector3.up * 5f;
         Vector3 flat = aimAt - foot; flat.y = 0f;
@@ -992,7 +997,7 @@ public static class IslandMapBuilder
         pole.Box(Vector3.up * 0.15f, facing, new Vector3(0.9f, 0.3f, 0.9f), 0);
         pole.Box(Vector3.up * 5.1f + facing * Vector3.forward * 0.25f, facing, new Vector3(0.7f, 0.5f, 0.3f), 1);
         pole.Box(Vector3.up * 5.1f + facing * Vector3.forward * 0.42f, facing, new Vector3(0.55f, 0.36f, 0.04f), 2);
-        GameObject go = pole.Build("Floodlight " + tag, propParent, foot, "Floodlight");
+        GameObject go = pole.Build("Floodlight " + tag, propParent, foot, assetName);
         var col = go.AddComponent<BoxCollider>(); col.center = Vector3.up * 2.5f; col.size = new Vector3(0.3f, 5f, 0.3f);
 
         var l = new GameObject("Floodlight " + tag, typeof(Light)).GetComponent<Light>();
@@ -1002,145 +1007,6 @@ public static class IslandMapBuilder
         l.intensity = 60f; l.range = 40f; l.spotAngle = 60f; l.innerSpotAngle = 35f;
         l.shadows = LightShadows.None;
         d.lights++;
-    }
-
-    /// <summary>
-    /// The boss arena's look (no gameplay): a stone platform with a metal-edged inlay, a ring of rock formations
-    /// around the edge with a gap at the gate, a timber frame at the gate, and a mining headframe over a glowing
-    /// crystal in the middle, lit from above. Returns a note if something couldn't be placed.
-    /// </summary>
-    private static string DressBossArena(Dresser d, CaveSpace arena, CaveSpace gate, Transform props, Transform lights)
-    {
-        if (arena == null) return null;
-        Vector3 centre = arena.transform.position;
-        if (!Physics.Raycast(centre + Vector3.up * 3f, Vector3.down, out RaycastHit floorHit, 10f)) return "BossArena floor";
-        centre = floorHit.point;
-        Material stone = SimpleMaterial("ArenaStone", new Color(0.24f, 0.23f, 0.27f), Color.black);
-
-        // Floor: a 14 m stone disc 0.15 m above the rock floor (a normal step up), an inner metal-edged ring.
-        var floor = new PropMesh(stone, d.metal, d.wood);
-        floor.Cyl(Vector3.up * -0.05f, Quaternion.identity, new Vector3(14f, 0.2f, 14f), 0); // the built-in Cylinder.fbx mesh has radius 1
-        floor.Cyl(Vector3.up * -0.02f, Quaternion.identity, new Vector3(6.5f, 0.2f, 6.5f), 2);
-        for (int i = 0; i < 28; i++)
-        {
-            float a = i / 28f * Mathf.PI * 2f;
-            foreach (float r in new[] { 13.9f, 6.5f })
-            {
-                if (r < 10f && i % 2 == 1) continue;
-                Vector3 at = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * r + Vector3.up * 0.16f;
-                floor.Box(at, Quaternion.Euler(0f, -a * Mathf.Rad2Deg, 0f), new Vector3(0.35f, 0.06f, r < 10f ? 1.5f : 3.2f), 1);
-            }
-        }
-        GameObject platform = floor.Build("ArenaFloor", props, centre, "ArenaFloor");
-        platform.AddComponent<MeshCollider>().sharedMesh = platform.GetComponent<MeshFilter>().sharedMesh;
-
-        // Centre: a mining headframe (4 posts, braces, a pulley wheel and cable) over a glowing crystal.
-        var frame = new PropMesh(d.wood, d.metal);
-        float h = 9f, half = 2.3f;
-        var postColliders = new List<Vector3>();
-        foreach (float x in new[] { -half, half })
-            foreach (float z in new[] { -half, half })
-            {
-                frame.Box(new Vector3(x, h * 0.5f, z), Quaternion.identity, new Vector3(0.45f, h, 0.45f), 0);
-                postColliders.Add(new Vector3(x, h * 0.5f, z));
-            }
-        foreach (float y in new[] { 3.5f, h })
-        {
-            frame.Box(new Vector3(0f, y, -half), Quaternion.identity, new Vector3(half * 2f + 0.5f, 0.35f, 0.35f), 0);
-            frame.Box(new Vector3(0f, y, half), Quaternion.identity, new Vector3(half * 2f + 0.5f, 0.35f, 0.35f), 0);
-            frame.Box(new Vector3(-half, y, 0f), Quaternion.identity, new Vector3(0.35f, 0.35f, half * 2f + 0.5f), 0);
-            frame.Box(new Vector3(half, y, 0f), Quaternion.identity, new Vector3(0.35f, 0.35f, half * 2f + 0.5f), 0);
-        }
-        foreach (float sgn in new[] { -1f, 1f })
-        {
-            frame.Box(new Vector3(sgn * half, (3.5f + h) * 0.5f, 0f), Quaternion.Euler(sgn * 35f, 0f, 0f), new Vector3(0.25f, 6.8f, 0.25f), 0);
-            frame.Box(new Vector3(0f, (3.5f + h) * 0.5f, sgn * half), Quaternion.Euler(0f, 0f, sgn * 35f), new Vector3(0.25f, 6.8f, 0.25f), 0);
-        }
-        frame.Cyl(new Vector3(0f, h + 1.2f, 0f), Quaternion.Euler(0f, 0f, 90f), new Vector3(1.3f, 0.15f, 1.3f), 1);
-        frame.Box(new Vector3(0f, h + 0.5f, 0f), Quaternion.identity, new Vector3(0.3f, 1.4f, 0.3f), 1);
-        frame.Box(new Vector3(1.25f, (h + 1.2f + 4.2f) * 0.5f, 0f), Quaternion.identity, new Vector3(0.07f, h + 1.2f - 4.2f, 0.07f), 1);
-        GameObject headframe = frame.Build("Headframe", props, centre + Vector3.up * 0.15f, "ArenaHeadframe");
-        foreach (Vector3 c in postColliders)
-        {
-            var col = new GameObject("Post Collider", typeof(BoxCollider));
-            col.transform.SetParent(headframe.transform, false);
-            col.transform.localPosition = c;
-            col.GetComponent<BoxCollider>().size = new Vector3(0.5f, h, 0.5f);
-        }
-        GameObject crystal = Place(OreRockPrefab, props, centre + Vector3.up * 0.15f, 25f, 3.2f);
-        if (crystal != null)
-        {
-            crystal.name = "Arena Crystal";
-            foreach (var r in crystal.GetComponentsInChildren<Renderer>()) r.sharedMaterial = d.crystal;
-            if (TryBounds(crystal, out Bounds cb)) // solid, so nobody walks through it between the posts
-            {
-                var box = crystal.AddComponent<BoxCollider>();
-                box.center = crystal.transform.InverseTransformPoint(cb.center);
-                box.size = Vector3.Scale(cb.size, new Vector3(1f / crystal.transform.lossyScale.x, 1f / crystal.transform.lossyScale.y, 1f / crystal.transform.lossyScale.z)) * 0.8f;
-            }
-            GameObjectUtility.SetStaticEditorFlags(crystal, StaticEditorFlags.BatchingStatic);
-        }
-
-        // Lights: warm work light under the headframe top, cyan glow from the crystal.
-        AddPointLight(lights, "Headframe Light", centre + Vector3.up * (h - 0.6f), new Color(1f, 0.62f, 0.36f), 16f, 34f);
-        AddPointLight(lights, "Crystal Glow", centre + Vector3.up * 2.2f, new Color(0.35f, 0.85f, 1f), 7f, 14f);
-        d.lights += 2;
-
-        // Rock formations around the edge, leaving the gate side open.
-        Vector3 gateDir = gate != null ? (gate.End.position - centre) : Vector3.forward;
-        gateDir.y = 0f; gateDir.Normalize();
-        int pillars = 0;
-        for (int i = 0; i < 12; i++)
-        {
-            float a = (i + 0.5f) / 12f * Mathf.PI * 2f;
-            var dir = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a));
-            if (Vector3.Angle(dir, gateDir) < 32f) continue; // the way in stays open
-            Vector3 at = centre + Vector3.Scale(dir, new Vector3(arena.Size.x, 0f, arena.Size.z)) * 0.8f;
-            if (!Physics.Raycast(at + Vector3.up * 6f, Vector3.down, out RaycastHit hit, 14f) || !hit.collider.transform.IsChildOf(d.generated)) continue;
-            // A tall, narrow rock column (9-13 m), sunk a little into the floor. Kept solid: it's cover.
-            GameObject rock = Place(RockFolder + "PT_Generic_Rock_01.prefab", props, hit.point - Vector3.up * 0.8f, i * 53f, 9f + (i * 37 % 5));
-            if (rock == null) continue;
-            rock.name = "Arena Pillar";
-            rock.transform.localScale = Vector3.Scale(rock.transform.localScale, new Vector3(0.5f, 1f, 0.5f));
-            if (TryBounds(rock, out Bounds rb))
-            {
-                var box = rock.AddComponent<BoxCollider>();
-                box.center = rock.transform.InverseTransformPoint(rb.center);
-                box.size = Vector3.Scale(rb.size, new Vector3(1f / rock.transform.lossyScale.x, 1f / rock.transform.lossyScale.y, 1f / rock.transform.lossyScale.z)) * 0.85f;
-            }
-            GameObjectUtility.SetStaticEditorFlags(rock, StaticEditorFlags.BatchingStatic | StaticEditorFlags.OccludeeStatic);
-            pillars++;
-        }
-
-        // Gate: a timber frame where the gate tunnel opens into the arena.
-        if (gate != null)
-        {
-            Vector3 g = gate.End.position, inward = (gate.End.position - gate.transform.position); inward.y = 0f; inward.Normalize();
-            Vector3 gSide = Vector3.Cross(Vector3.up, inward).normalized;
-            if (Physics.Raycast(g + Vector3.up * 3f, Vector3.down, out RaycastHit gh, 10f)) g = gh.point;
-            float span = gate.Size.x - 2f, fh = 8f;
-            var gateFrame = new PropMesh(d.wood, d.metal);
-            Quaternion rot = Quaternion.LookRotation(inward);
-            var colliders = new List<Vector3>();
-            foreach (float sgn in new[] { -1f, 1f })
-            {
-                Vector3 b = gSide * span * sgn;
-                gateFrame.Box(b + Vector3.up * (fh * 0.5f - 0.3f), rot, new Vector3(0.7f, fh + 0.6f, 0.7f), 0);
-                gateFrame.Box(b + Vector3.up * (fh - 1.6f) - gSide * sgn * 1.1f, rot * Quaternion.Euler(0f, 0f, sgn * 45f), new Vector3(0.35f, 2.8f, 0.35f), 0);
-                colliders.Add(b + Vector3.up * (fh * 0.5f));
-            }
-            gateFrame.Box(Vector3.up * fh, rot, new Vector3(span * 2f + 1.6f, 0.8f, 0.8f), 0);
-            gateFrame.Box(Vector3.up * (fh - 0.45f), rot, new Vector3(span * 2f + 1.7f, 0.12f, 0.9f), 1);
-            GameObject gf = gateFrame.Build("GateFrame", props, g, "ArenaGateFrame");
-            foreach (Vector3 c in colliders)
-            {
-                var col = new GameObject("Post Collider", typeof(BoxCollider));
-                col.transform.SetParent(gf.transform, false);
-                col.transform.SetPositionAndRotation(g + c, rot);
-                col.GetComponent<BoxCollider>().size = new Vector3(0.7f, fh, 0.7f);
-            }
-        }
-        return pillars < 6 ? $"BossArena: only {pillars} pillars placed" : null;
     }
 
     /// <summary>Instantiates a prefab scaled to a height, standing on <paramref name="pos"/> (its colliders removed).</summary>
@@ -1231,18 +1097,84 @@ public static class IslandMapBuilder
         sign.Box(new Vector3(0f, 1.1f, 0.1f), Quaternion.identity, new Vector3(0.15f, 2.2f, 0.15f), 0);
         sign.Box(new Vector3(0f, 1.95f, 0f), Quaternion.identity, new Vector3(2.4f, 0.9f, 0.08f), 0);
         GameObject go = sign.Build("Sign", parent, at, "Sign_" + Mathf.RoundToInt(at.z));
-        var label = new GameObject("Text", typeof(TextMesh));
-        label.transform.SetParent(go.transform, false);
-        label.transform.localPosition = new Vector3(0f, 1.95f, -0.05f);
-        var tm = label.GetComponent<TextMesh>();
-        tm.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        tm.text = text;
-        tm.fontSize = 64;
-        tm.characterSize = 0.035f;
-        tm.anchor = TextAnchor.MiddleCenter;
-        tm.alignment = TextAlignment.Center;
-        tm.fontStyle = FontStyle.Bold;
-        tm.color = new Color(1f, 0.92f, 0.75f);
-        label.GetComponent<MeshRenderer>().sharedMaterial = tm.font.material;
+        SignText(go.transform, text, false, 0.035f);
+    }
+
+    private const float SignBoardHeight = 1.95f; // centre of a sign's board (2.4 x 0.9 x 0.08 m, a 0.15 m post behind it)
+
+    /// <summary>
+    /// The text on a sign board: the front text just in front of the board's -Z face, the back text (optional) just
+    /// behind the post, turned round so it reads correctly from behind. Never on the same plane, and each is drawn
+    /// from its own side only and hidden by anything in front of it (SignText material). Shrunk to fit the board.
+    /// </summary>
+    private static void SignText(Transform sign, string text, bool backToo, float characterSize = 0f)
+    {
+        Material material = SignTextMaterial();
+        Font font = Resources.GetBuiltinResource<Font>(SignTextFont.FontName);
+        foreach (bool back in backToo ? new[] { false, true } : new[] { false })
+        {
+            var label = new GameObject(back ? "Text (back)" : "Text", typeof(TextMesh));
+            label.transform.SetParent(sign, false);
+            // Board faces at z = -0.04 / +0.04, post's back at +0.175: 2 cm clear of each.
+            label.transform.localPosition = new Vector3(0f, SignBoardHeight, back ? 0.195f : -0.06f);
+            if (back) label.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            var tm = label.GetComponent<TextMesh>();
+            tm.font = font;
+            tm.text = text;
+            tm.fontSize = 64;
+            tm.characterSize = characterSize > 0f ? characterSize : text.Split('\n').Length > 2 ? 0.026f : 0.033f;
+            tm.anchor = TextAnchor.MiddleCenter;
+            tm.alignment = TextAlignment.Center;
+            tm.fontStyle = FontStyle.Bold;
+            tm.color = new Color(1f, 0.92f, 0.75f);
+            var renderer = label.GetComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            // Long lines: shrink until the text fits on the board (2.4 x 0.9 m, with a small margin).
+            Vector2 size = TextSize(tm);
+            float fit = Mathf.Min(1f, 2.2f / Mathf.Max(0.01f, size.x), 0.8f / Mathf.Max(0.01f, size.y));
+            if (fit < 1f) tm.characterSize *= fit;
+        }
+    }
+
+    /// <summary>The size (metres, at scale 1) a TextMesh's text takes, from the font's glyph metrics.</summary>
+    private static Vector2 TextSize(TextMesh tm)
+    {
+        string[] lines = tm.text.Split('\n');
+        tm.font.RequestCharactersInTexture(tm.text, tm.fontSize, tm.fontStyle);
+        float widest = 0f;
+        foreach (string line in lines)
+        {
+            float w = 0f;
+            foreach (char c in line)
+                if (tm.font.GetCharacterInfo(c, out CharacterInfo info, tm.fontSize, tm.fontStyle)) w += info.advance;
+            widest = Mathf.Max(widest, w);
+        }
+        // TextMesh: one font pixel = characterSize / 10 world units; line height = font line height.
+        float scale = tm.characterSize * 0.1f;
+        float lineHeight = tm.font.lineHeight > 0 ? tm.font.lineHeight * tm.fontSize / Mathf.Max(1f, tm.font.fontSize) : tm.fontSize * 1.15f;
+        return new Vector2(widest * scale, lines.Length * lineHeight * scale);
+    }
+
+    /// <summary>The sign text material (Assets/Resources/SignText.mat), made on first use; its texture is the font's.</summary>
+    private static Material SignTextMaterial()
+    {
+        string path = $"Assets/Resources/{SignTextFont.MaterialName}.mat";
+        Shader shader = Shader.Find("Ore What/Sign Text");
+        var material = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (material == null)
+        {
+            material = new Material(shader) { name = SignTextFont.MaterialName };
+            AssetDatabase.CreateAsset(material, path);
+        }
+        Font font = Resources.GetBuiltinResource<Font>(SignTextFont.FontName);
+        if (material.shader != shader || material.mainTexture != font.material.mainTexture)
+        {
+            material.shader = shader;
+            material.mainTexture = font.material.mainTexture;
+            EditorUtility.SetDirty(material);
+        }
+        return material;
     }
 }

@@ -9,7 +9,7 @@ using UnityEngine;
 /// </summary>
 public interface IWorldNetwork
 {
-    /// <summary>A local player hit a rock. The host applies it (once) and tells everyone.</summary>
+    /// <summary>A mining-capable local tool hit a rock. The host checks the equipped capability, applies it and synchronizes durability.</summary>
     void RequestRockHit(RockHealth rock, int damage);
 
     /// <summary>
